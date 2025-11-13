@@ -129,7 +129,7 @@ func (e *metricsExporter) batchToColumnar(metricName string, batch *metricBatch)
 		columns[labelKey] = columnValues
 	}
 
-	// Create columnar payload - Telegraf style with explicit columns
+	// Create columnar payload - Arc's columnar msgpack format with dynamic columns
 	columnarData := map[string]interface{}{
 		"m":       metricName,
 		"columns": columns,

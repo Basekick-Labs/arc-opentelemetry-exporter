@@ -43,7 +43,7 @@ func (e *tracesExporter) pushTraces(ctx context.Context, td ptrace.Traces) error
 }
 
 func (e *tracesExporter) tracesToColumnar(td ptrace.Traces) ([]byte, error) {
-	// Columnar arrays
+	// Columnar arrays for fixed fields
 	times := []int64{}
 	traceIDs := []string{}
 	spanIDs := []string{}
@@ -54,17 +54,16 @@ func (e *tracesExporter) tracesToColumnar(td ptrace.Traces) ([]byte, error) {
 	durationsNs := []int64{}
 	statusCodes := []int32{}
 	statusMessages := []string{}
-	attributes := []map[string]interface{}{}
+
+	// Collect all attributes for dynamic columns
+	allAttributes := []map[string]interface{}{}
 
 	// Iterate through resource spans
 	for i := 0; i < td.ResourceSpans().Len(); i++ {
 		rs := td.ResourceSpans().At(i)
 
-		// Get service name from resource attributes
-		serviceName := ""
-		if serviceAttr, ok := rs.Resource().Attributes().Get("service.name"); ok {
-			serviceName = serviceAttr.Str()
-		}
+		// Get resource attributes
+		resourceAttrs := attributesToMap(rs.Resource().Attributes())
 
 		// Iterate through scope spans
 		for j := 0; j < rs.ScopeSpans().Len(); j++ {
@@ -87,8 +86,15 @@ func (e *tracesExporter) tracesToColumnar(td ptrace.Traces) ([]byte, error) {
 				}
 				parentSpanIDs = append(parentSpanIDs, parentSpanID)
 
-				// Service and operation
+				// Service name from resource attributes
+				serviceName := ""
+				if sn, ok := resourceAttrs["service.name"]; ok {
+					if snStr, ok := sn.(string); ok {
+						serviceName = snStr
+					}
+				}
 				serviceNames = append(serviceNames, serviceName)
+
 				operationNames = append(operationNames, span.Name())
 
 				// Span kind
@@ -103,29 +109,56 @@ func (e *tracesExporter) tracesToColumnar(td ptrace.Traces) ([]byte, error) {
 				statusCodes = append(statusCodes, int32(span.Status().Code()))
 				statusMessages = append(statusMessages, span.Status().Message())
 
-				// Attributes
-				attrs := attributesToMap(span.Attributes())
-				attributes = append(attributes, attrs)
+				// Merge resource attributes with span attributes
+				spanAttrs := attributesToMap(span.Attributes())
+				mergedAttrs := mergeAttributes(resourceAttrs, spanAttrs)
+				allAttributes = append(allAttributes, mergedAttrs)
 			}
 		}
 	}
 
+	// Dynamically extract all unique attribute keys
+	attributeKeys := make(map[string]bool)
+	for _, attrs := range allAttributes {
+		for key := range attrs {
+			// Skip service.name since we already have service_name column
+			if key != "service.name" {
+				attributeKeys[key] = true
+			}
+		}
+	}
+
+	// Create columns map with fixed fields
+	columns := map[string]interface{}{
+		"time":           times,
+		"trace_id":       traceIDs,
+		"span_id":        spanIDs,
+		"parent_span_id": parentSpanIDs,
+		"service_name":   serviceNames,
+		"operation_name": operationNames,
+		"span_kind":      spanKinds,
+		"duration_ns":    durationsNs,
+		"status_code":    statusCodes,
+		"status_message": statusMessages,
+	}
+
+	// Add dynamic columns for each attribute
+	for attrKey := range attributeKeys {
+		columnValues := make([]interface{}, len(allAttributes))
+		for i, attrs := range allAttributes {
+			if val, ok := attrs[attrKey]; ok {
+				columnValues[i] = val
+			} else {
+				columnValues[i] = nil
+			}
+		}
+		columns[attrKey] = columnValues
+	}
+
 	// Create columnar payload
 	columnarData := map[string]interface{}{
-		"m": e.config.TracesMeasurement,
-		"columns": map[string]interface{}{
-			"time":              times,
-			"trace_id":          traceIDs,
-			"span_id":           spanIDs,
-			"parent_span_id":    parentSpanIDs,
-			"service_name":      serviceNames,
-			"operation_name":    operationNames,
-			"span_kind":         spanKinds,
-			"duration_ns":       durationsNs,
-			"status_code":       statusCodes,
-			"status_message":    statusMessages,
-			"attributes":        attributes,
-		},
+		"m":       e.config.TracesMeasurement,
+		"columns": columns,
 	}
 
 	// Serialize to msgpack
@@ -231,4 +264,22 @@ func valueToInterface(v pcommon.Value) interface{} {
 	default:
 		return nil
 	}
+}
+
+// mergeAttributes merges resource attributes with span attributes
+// Span attributes take precedence over resource attributes
+func mergeAttributes(resourceAttrs, spanAttrs map[string]interface{}) map[string]interface{} {
+	result := make(map[string]interface{}, len(resourceAttrs)+len(spanAttrs))
+
+	// First copy resource attributes
+	for k, v := range resourceAttrs {
+		result[k] = v
+	}
+
+	// Then override with span attributes
+	for k, v := range spanAttrs {
+		result[k] = v
+	}
+
+	return result
 }

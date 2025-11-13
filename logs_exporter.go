@@ -42,7 +42,7 @@ func (e *logsExporter) pushLogs(ctx context.Context, ld plog.Logs) error {
 }
 
 func (e *logsExporter) logsToColumnar(ld plog.Logs) ([]byte, error) {
-	// Columnar arrays
+	// Columnar arrays for fixed fields
 	times := []int64{}
 	severities := []string{}
 	severityNumbers := []int32{}
@@ -51,18 +51,13 @@ func (e *logsExporter) logsToColumnar(ld plog.Logs) ([]byte, error) {
 	spanIDs := []string{}
 	traceFlags := []uint32{}
 	serviceNames := []string{}
-	attributes := []map[string]interface{}{}
-	resourceAttrs := []map[string]interface{}{}
+
+	// Collect all attributes for dynamic columns
+	allAttributes := []map[string]interface{}{}
 
 	// Iterate through resource logs
 	for i := 0; i < ld.ResourceLogs().Len(); i++ {
 		rl := ld.ResourceLogs().At(i)
-
-		// Get service name from resource attributes
-		serviceName := ""
-		if serviceAttr, ok := rl.Resource().Attributes().Get("service.name"); ok {
-			serviceName = serviceAttr.Str()
-		}
 
 		// Resource attributes
 		resAttrs := attributesToMap(rl.Resource().Attributes())
@@ -107,34 +102,63 @@ func (e *logsExporter) logsToColumnar(ld plog.Logs) ([]byte, error) {
 
 				traceFlags = append(traceFlags, uint32(lr.Flags()))
 
-				// Service name
+				// Service name from resource attributes
+				serviceName := ""
+				if sn, ok := resAttrs["service.name"]; ok {
+					if snStr, ok := sn.(string); ok {
+						serviceName = snStr
+					}
+				}
 				serviceNames = append(serviceNames, serviceName)
 
-				// Log attributes
-				attrs := attributesToMap(lr.Attributes())
-				attributes = append(attributes, attrs)
-
-				// Resource attributes
-				resourceAttrs = append(resourceAttrs, resAttrs)
+				// Merge resource attributes with log attributes
+				logAttrs := attributesToMap(lr.Attributes())
+				mergedAttrs := mergeAttributes(resAttrs, logAttrs)
+				allAttributes = append(allAttributes, mergedAttrs)
 			}
 		}
 	}
 
+	// Dynamically extract all unique attribute keys
+	attributeKeys := make(map[string]bool)
+	for _, attrs := range allAttributes {
+		for key := range attrs {
+			// Skip service.name since we already have service_name column
+			if key != "service.name" {
+				attributeKeys[key] = true
+			}
+		}
+	}
+
+	// Create columns map with fixed fields
+	columns := map[string]interface{}{
+		"time":            times,
+		"severity":        severities,
+		"severity_number": severityNumbers,
+		"body":            bodies,
+		"trace_id":        traceIDs,
+		"span_id":         spanIDs,
+		"trace_flags":     traceFlags,
+		"service_name":    serviceNames,
+	}
+
+	// Add dynamic columns for each attribute
+	for attrKey := range attributeKeys {
+		columnValues := make([]interface{}, len(allAttributes))
+		for i, attrs := range allAttributes {
+			if val, ok := attrs[attrKey]; ok {
+				columnValues[i] = val
+			} else {
+				columnValues[i] = nil
+			}
+		}
+		columns[attrKey] = columnValues
+	}
+
 	// Create columnar payload
 	columnarData := map[string]interface{}{
-		"m": e.config.LogsMeasurement,
-		"columns": map[string]interface{}{
-			"time":             times,
-			"severity":         severities,
-			"severity_number":  severityNumbers,
-			"body":             bodies,
-			"trace_id":         traceIDs,
-			"span_id":          spanIDs,
-			"trace_flags":      traceFlags,
-			"service_name":     serviceNames,
-			"attributes":       attributes,
-			"resource_attrs":   resourceAttrs,
-		},
+		"m":       e.config.LogsMeasurement,
+		"columns": columns,
 	}
 
 	// Serialize to msgpack
@@ -188,4 +212,22 @@ func (e *logsExporter) sendToArc(ctx context.Context, payload []byte) error {
 		zap.Int("payload_size", len(payload)))
 
 	return nil
+}
+
+// mergeAttributes merges resource attributes with log attributes
+// Log attributes take precedence over resource attributes
+func mergeAttributes(resourceAttrs, logAttrs map[string]interface{}) map[string]interface{} {
+	result := make(map[string]interface{}, len(resourceAttrs)+len(logAttrs))
+
+	// First copy resource attributes
+	for k, v := range resourceAttrs {
+		result[k] = v
+	}
+
+	// Then override with log attributes
+	for k, v := range logAttrs {
+		result[k] = v
+	}
+
+	return result
 }

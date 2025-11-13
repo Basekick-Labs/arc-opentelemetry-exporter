@@ -70,6 +70,9 @@ exporters:
   arc:
     endpoint: http://localhost:8000
 
+    # Authentication token from environment variable
+    auth_token: ${env:ARC_AUTH_TOKEN}
+
     # Use separate databases for better organization
     traces_database: traces
     metrics_database: metrics

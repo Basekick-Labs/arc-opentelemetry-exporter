@@ -155,10 +155,15 @@ func (e *metricsExporter) processSum(metric pmetric.Metric, batch *metricBatch) 
 		batch.times = append(batch.times, dp.Timestamp().AsTime().UnixMilli())
 		batch.values = append(batch.values, getNumberValue(dp))
 
-		// Add metadata to labels
+		// Get attributes as labels
 		labels := attributesToMap(dp.Attributes())
-		labels["_monotonic"] = sum.IsMonotonic()
-		labels["_aggregation_temporality"] = sum.AggregationTemporality().String()
+
+		// Only include internal metadata if explicitly requested
+		if e.config.IncludeMetricMetadata {
+			labels["_monotonic"] = sum.IsMonotonic()
+			labels["_aggregation_temporality"] = sum.AggregationTemporality().String()
+		}
+
 		batch.labels = append(batch.labels, labels)
 	}
 }
@@ -172,14 +177,22 @@ func (e *metricsExporter) processHistogram(metric pmetric.Metric, batch *metricB
 		// Store histogram as multiple data points with different labels
 		// Count
 		countLabels := copyMap(attrs)
-		countLabels["_histogram_field"] = "count"
+		if e.config.IncludeMetricMetadata {
+			countLabels["_histogram_field"] = "count"
+		} else {
+			countLabels["histogram_field"] = "count"
+		}
 		batch.times = append(batch.times, dp.Timestamp().AsTime().UnixMilli())
 		batch.values = append(batch.values, float64(dp.Count()))
 		batch.labels = append(batch.labels, countLabels)
 
 		// Sum
 		sumLabels := copyMap(attrs)
-		sumLabels["_histogram_field"] = "sum"
+		if e.config.IncludeMetricMetadata {
+			sumLabels["_histogram_field"] = "sum"
+		} else {
+			sumLabels["histogram_field"] = "sum"
+		}
 		batch.times = append(batch.times, dp.Timestamp().AsTime().UnixMilli())
 		batch.values = append(batch.values, dp.Sum())
 		batch.labels = append(batch.labels, sumLabels)
@@ -187,7 +200,11 @@ func (e *metricsExporter) processHistogram(metric pmetric.Metric, batch *metricB
 		// Min (if available)
 		if dp.HasMin() {
 			minLabels := copyMap(attrs)
-			minLabels["_histogram_field"] = "min"
+			if e.config.IncludeMetricMetadata {
+				minLabels["_histogram_field"] = "min"
+			} else {
+				minLabels["histogram_field"] = "min"
+			}
 			batch.times = append(batch.times, dp.Timestamp().AsTime().UnixMilli())
 			batch.values = append(batch.values, dp.Min())
 			batch.labels = append(batch.labels, minLabels)
@@ -196,7 +213,11 @@ func (e *metricsExporter) processHistogram(metric pmetric.Metric, batch *metricB
 		// Max (if available)
 		if dp.HasMax() {
 			maxLabels := copyMap(attrs)
-			maxLabels["_histogram_field"] = "max"
+			if e.config.IncludeMetricMetadata {
+				maxLabels["_histogram_field"] = "max"
+			} else {
+				maxLabels["histogram_field"] = "max"
+			}
 			batch.times = append(batch.times, dp.Timestamp().AsTime().UnixMilli())
 			batch.values = append(batch.values, dp.Max())
 			batch.labels = append(batch.labels, maxLabels)
@@ -205,7 +226,11 @@ func (e *metricsExporter) processHistogram(metric pmetric.Metric, batch *metricB
 		// Buckets
 		for j := 0; j < dp.BucketCounts().Len(); j++ {
 			bucketLabels := copyMap(attrs)
-			bucketLabels["_histogram_field"] = "bucket"
+			if e.config.IncludeMetricMetadata {
+				bucketLabels["_histogram_field"] = "bucket"
+			} else {
+				bucketLabels["histogram_field"] = "bucket"
+			}
 			if j < dp.ExplicitBounds().Len() {
 				bucketLabels["le"] = dp.ExplicitBounds().At(j)
 			} else {
@@ -227,14 +252,22 @@ func (e *metricsExporter) processSummary(metric pmetric.Metric, batch *metricBat
 
 		// Count
 		countLabels := copyMap(attrs)
-		countLabels["_summary_field"] = "count"
+		if e.config.IncludeMetricMetadata {
+			countLabels["_summary_field"] = "count"
+		} else {
+			countLabels["summary_field"] = "count"
+		}
 		batch.times = append(batch.times, dp.Timestamp().AsTime().UnixMilli())
 		batch.values = append(batch.values, float64(dp.Count()))
 		batch.labels = append(batch.labels, countLabels)
 
 		// Sum
 		sumLabels := copyMap(attrs)
-		sumLabels["_summary_field"] = "sum"
+		if e.config.IncludeMetricMetadata {
+			sumLabels["_summary_field"] = "sum"
+		} else {
+			sumLabels["summary_field"] = "sum"
+		}
 		batch.times = append(batch.times, dp.Timestamp().AsTime().UnixMilli())
 		batch.values = append(batch.values, dp.Sum())
 		batch.labels = append(batch.labels, sumLabels)
@@ -243,7 +276,11 @@ func (e *metricsExporter) processSummary(metric pmetric.Metric, batch *metricBat
 		for j := 0; j < dp.QuantileValues().Len(); j++ {
 			qv := dp.QuantileValues().At(j)
 			quantileLabels := copyMap(attrs)
-			quantileLabels["_summary_field"] = "quantile"
+			if e.config.IncludeMetricMetadata {
+				quantileLabels["_summary_field"] = "quantile"
+			} else {
+				quantileLabels["summary_field"] = "quantile"
+			}
 			quantileLabels["quantile"] = qv.Quantile()
 
 			batch.times = append(batch.times, dp.Timestamp().AsTime().UnixMilli())

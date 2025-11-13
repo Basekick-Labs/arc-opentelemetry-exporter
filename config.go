@@ -38,6 +38,10 @@ type Config struct {
 	// LogsMeasurement is the measurement name for logs (default: "logs")
 	LogsMeasurement string `mapstructure:"logs_measurement"`
 
+	// IncludeMetricMetadata controls whether to include internal OTel metadata in labels
+	// (e.g., _monotonic, _aggregation_temporality). Default: false
+	IncludeMetricMetadata bool `mapstructure:"include_metric_metadata"`
+
 	// Note: Metrics do not have a single measurement name. Each metric name becomes
 	// its own measurement/table (e.g., "system.cpu.usage" -> "system_cpu_usage" table)
 }

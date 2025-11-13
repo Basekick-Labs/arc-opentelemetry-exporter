@@ -20,13 +20,11 @@ function query() {
     if [ -n "$ARC_AUTH_TOKEN" ]; then
         curl -s -X POST "${ARC_URL}/api/v1/query" \
             -H "Content-Type: application/json" \
-            -H "x-arc-database: ${DATABASE}" \
             -H "Authorization: Bearer $ARC_AUTH_TOKEN" \
             -d "$payload" | jq .
     else
         curl -s -X POST "${ARC_URL}/api/v1/query" \
             -H "Content-Type: application/json" \
-            -H "x-arc-database: ${DATABASE}" \
             -d "$payload" | jq .
     fi
 }
@@ -48,14 +46,14 @@ case "${1:-dashboard}" in
         header "📊 Mac System Dashboard"
 
         echo -e "${YELLOW}🔍 Available Metrics Tables:${NC}"
-        query "SHOW TABLES" | jq -r '.data[][]' | sort
+        query "SHOW TABLES FROM ${DATABASE}" | jq -r '.data[][]' | sort
 
         header "💻 CPU Usage (Last Minute)"
         query "SELECT
             labels->>'cpu' as cpu,
             labels->>'state' as state,
             round(avg(value)::numeric, 2) as avg_value
-        FROM system_cpu_time
+        FROM ${DATABASE}.system_cpu_time
         WHERE time > now() - INTERVAL '1 minute'
         GROUP BY labels->>'cpu', labels->>'state'
         ORDER BY cpu, state
@@ -65,7 +63,7 @@ case "${1:-dashboard}" in
         query "SELECT
             labels->>'state' as state,
             round((avg(value) / 1024 / 1024 / 1024)::numeric, 2) as avg_gb
-        FROM system_memory_usage
+        FROM ${DATABASE}.system_memory_usage
         WHERE time > now() - INTERVAL '5 minutes'
         GROUP BY labels->>'state'"
 
@@ -74,7 +72,7 @@ case "${1:-dashboard}" in
             labels->>'device' as device,
             labels->>'mountpoint' as mountpoint,
             round((avg(value) / 1024 / 1024 / 1024)::numeric, 2) as used_gb
-        FROM system_filesystem_usage
+        FROM ${DATABASE}.system_filesystem_usage
         WHERE time > now() - INTERVAL '5 minutes'
             AND labels->>'state' = 'used'
         GROUP BY labels->>'device', labels->>'mountpoint'
@@ -84,7 +82,7 @@ case "${1:-dashboard}" in
         query "SELECT
             time,
             value as load_1m
-        FROM system_cpu_load_average_1m
+        FROM ${DATABASE}.system_cpu_load_average_1m
         ORDER BY time DESC
         LIMIT 5"
         ;;
@@ -96,7 +94,7 @@ case "${1:-dashboard}" in
             labels->>'cpu' as cpu,
             labels->>'state' as state,
             round(value::numeric, 2) as value
-        FROM system_cpu_time
+        FROM ${DATABASE}.system_cpu_time
         ORDER BY time DESC
         LIMIT 30"
         ;;
@@ -107,7 +105,7 @@ case "${1:-dashboard}" in
             time,
             labels->>'state' as state,
             round((value / 1024 / 1024 / 1024)::numeric, 2) as gb
-        FROM system_memory_usage
+        FROM ${DATABASE}.system_memory_usage
         ORDER BY time DESC, state
         LIMIT 20"
         ;;
@@ -119,7 +117,7 @@ case "${1:-dashboard}" in
             labels->>'device' as device,
             labels->>'direction' as direction,
             round((value / 1024 / 1024)::numeric, 2) as mb
-        FROM system_disk_io
+        FROM ${DATABASE}.system_disk_io
         ORDER BY time DESC
         LIMIT 20"
         ;;
@@ -131,14 +129,14 @@ case "${1:-dashboard}" in
             labels->>'device' as device,
             labels->>'direction' as direction,
             round((value / 1024 / 1024)::numeric, 2) as mb
-        FROM system_network_io
+        FROM ${DATABASE}.system_network_io
         ORDER BY time DESC
         LIMIT 20"
         ;;
 
     "tables")
         header "📋 Available Metrics Tables"
-        query "SHOW TABLES"
+        query "SHOW TABLES FROM ${DATABASE}"
         ;;
 
     "raw")
@@ -147,7 +145,7 @@ case "${1:-dashboard}" in
             exit 1
         fi
         header "📊 Raw data from $2"
-        query "SELECT * FROM $2 ORDER BY time DESC LIMIT 10"
+        query "SELECT * FROM ${DATABASE}.$2 ORDER BY time DESC LIMIT 10"
         ;;
 
     "help"|"-h"|"--help")

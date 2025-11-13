@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  # Arc database
+  arc:
+    image: ghcr.io/basekick-labs/arc:latest
+    ports:
+      - "8000:8000"
+    environment:
+      - STORAGE_BACKEND=local
+    volumes:
+      - arc-data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # OpenTelemetry Collector with Arc exporter
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+      - "8888:8888"   # Prometheus metrics
+      - "8889:8889"   # Prometheus exporter
+    depends_on:
+      arc:
+        condition: service_healthy
+
+  # Example application sending telemetry
+  # Uncomment to run a demo app that generates traces/metrics/logs
+  # demo-app:
+  #   image: otel/opentelemetry-demo-app:latest
+  #   environment:
+  #     - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+  #     - OTEL_SERVICE_NAME=demo-app
+  #   depends_on:
+  #     - otel-collector
+
+volumes:
+  arc-data:

@@ -1,0 +1,75 @@
+# OpenTelemetry Collector Configuration with Arc Exporter
+# This example shows how to receive OTLP data and export to Arc
+
+receivers:
+  # OTLP receiver - receives traces, metrics, and logs
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Batch processor - batches telemetry data before export
+  batch:
+    timeout: 1s
+    send_batch_size: 1000
+    send_batch_max_size: 1500
+
+  # Memory limiter - prevents OOM
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+
+exporters:
+  # Arc exporter - sends data to Arc database
+  arc:
+    # Arc API endpoint (required)
+    endpoint: http://localhost:8000
+
+    # Authentication token (optional)
+    # auth_token: your-arc-token-here
+
+    # Database name (optional, default: "default")
+    database: default
+
+    # Measurement/table names (optional)
+    traces_measurement: distributed_traces
+    metrics_measurement: metrics
+    logs_measurement: logs
+
+    # HTTP client settings
+    timeout: 30s
+    compression: gzip
+
+    # Retry configuration
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
+
+  # Debug exporter - useful for testing
+  debug:
+    verbosity: detailed
+
+service:
+  pipelines:
+    # Traces pipeline
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [arc]
+
+    # Metrics pipeline
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [arc]
+
+    # Logs pipeline
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [arc]

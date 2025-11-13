@@ -8,7 +8,7 @@ dist:
   otelcol_version: 0.92.0
 
 exporters:
-  - gomod: github.com/basekick-labs/arc-opentelemetry-exporter v0.1.5
+  - gomod: github.com/basekick-labs/arc-opentelemetry-exporter v0.1.8
     import: github.com/basekick-labs/arc-opentelemetry-exporter
     name: arcexporter
 

@@ -58,6 +58,9 @@ processors:
   # Resource processor - adds identifying information
   resource:
     attributes:
+      - key: host.name
+        value: ${env:HOSTNAME}
+        action: upsert
       - key: environment
         value: development
         action: insert

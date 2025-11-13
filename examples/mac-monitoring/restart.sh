@@ -22,8 +22,12 @@ rm -rf otelcol-arc
 echo ""
 echo "✅ Rebuild complete!"
 echo ""
+
+# Set hostname
+export HOSTNAME=$(hostname)
+
 echo "🎯 Starting OpenTelemetry Collector..."
-echo "   Hostname: ${HOSTNAME:-$(hostname)}"
+echo "   Hostname: $HOSTNAME"
 echo ""
 
 # Run the collector

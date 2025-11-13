@@ -12,9 +12,17 @@ NC='\033[0m' # No Color
 
 function query() {
     local sql="$1"
-    curl -s -X POST "${ARC_URL}/api/v1/query" \
+    local auth_header=""
+
+    # Add Authorization header if ARC_AUTH_TOKEN is set
+    if [ -n "$ARC_AUTH_TOKEN" ]; then
+        auth_header="-H \"Authorization: Bearer $ARC_AUTH_TOKEN\""
+    fi
+
+    eval curl -s -X POST "${ARC_URL}/api/v1/query" \
         -H "Content-Type: application/json" \
         -H "x-arc-database: ${DATABASE}" \
+        $auth_header \
         -d "{\"sql\":$(echo "$sql" | jq -Rs .),\"format\":\"json\"}" | jq .
 }
 

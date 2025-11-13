@@ -1,0 +1,204 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.22'
+
+      - name: Get version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Tidy dependencies
+        run: go mod tidy
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build binaries
+        run: |
+          VERSION=${{ steps.get_version.outputs.version }}
+
+          # Build for multiple platforms
+          GOOS=linux GOARCH=amd64 go build -o bin/arc-exporter-${VERSION}-linux-amd64 .
+          GOOS=linux GOARCH=arm64 go build -o bin/arc-exporter-${VERSION}-linux-arm64 .
+          GOOS=darwin GOARCH=amd64 go build -o bin/arc-exporter-${VERSION}-darwin-amd64 .
+          GOOS=darwin GOARCH=arm64 go build -o bin/arc-exporter-${VERSION}-darwin-arm64 .
+          GOOS=windows GOARCH=amd64 go build -o bin/arc-exporter-${VERSION}-windows-amd64.exe .
+
+      - name: Create checksums
+        run: |
+          cd bin
+          sha256sum * > checksums.txt
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          VERSION=${{ steps.get_version.outputs.version }}
+          cat > release_notes.md <<'EOF'
+          # Arc OpenTelemetry Exporter ${{ steps.get_version.outputs.tag }}
+
+          OpenTelemetry Collector exporter for Arc - the unified observability database.
+
+          ## Features
+
+          - ✅ **Traces**: Export distributed traces with full span hierarchy
+          - ✅ **Metrics**: Export all metric types (gauge, counter, histogram, summary)
+          - ✅ **Logs**: Export structured logs with attributes
+          - 🚀 **High Performance**: Uses Arc's columnar msgpack format
+          - 📦 **Database Separation**: Support for separate databases per signal type
+          - 🔄 **Retry Logic**: Configurable retry with exponential backoff
+
+          ## Installation
+
+          ### Option 1: Use with OpenTelemetry Collector Builder (OCB)
+
+          Add to your `builder-config.yaml`:
+
+          ```yaml
+          exporters:
+            - gomod: github.com/basekick-labs/arc-opentelemetry-exporter ${{ steps.get_version.outputs.tag }}
+          ```
+
+          Then build:
+
+          ```bash
+          ocb --config builder-config.yaml
+          ```
+
+          ### Option 2: Download Pre-built Binary
+
+          Download the binary for your platform from the assets below.
+
+          ## Quick Start
+
+          ### 1. Start Arc
+
+          ```bash
+          docker run -d -p 8000:8000 \
+            -e STORAGE_BACKEND=local \
+            -v arc-data:/app/data \
+            ghcr.io/basekick-labs/arc:latest
+          ```
+
+          ### 2. Configure OpenTelemetry Collector
+
+          ```yaml
+          exporters:
+            arc:
+              endpoint: http://localhost:8000
+              # Optional: Separate databases per signal type
+              traces_database: traces
+              metrics_database: metrics
+              logs_database: logs
+
+          service:
+            pipelines:
+              traces:
+                receivers: [otlp]
+                processors: [batch]
+                exporters: [arc]
+              metrics:
+                receivers: [otlp]
+                processors: [batch]
+                exporters: [arc]
+              logs:
+                receivers: [otlp]
+                processors: [batch]
+                exporters: [arc]
+          ```
+
+          ### 3. Run OpenTelemetry Collector
+
+          ```bash
+          ./otelcol-custom --config=config.yaml
+          ```
+
+          ## Database Organization
+
+          **Recommended setup** - Separate databases per signal type:
+
+          ```
+          traces/
+            └── distributed_traces
+
+          metrics/
+            ├── system_cpu_usage
+            ├── system_memory_usage
+            └── http_requests_total
+
+          logs/
+            └── logs
+          ```
+
+          ## Unified Observability
+
+          Arc's flagship feature: **Join traces, metrics, and logs in a single SQL query**
+
+          ```sql
+          -- Correlate failed requests with error logs and CPU metrics
+          SELECT
+            t.time,
+            t.trace_id,
+            t.service_name,
+            t.operation_name,
+            t.duration_ns / 1000000 AS duration_ms,
+            l.body AS error_message,
+            cpu.value AS cpu_usage
+          FROM traces.distributed_traces t
+          LEFT JOIN logs.logs l ON t.trace_id = l.trace_id
+          LEFT JOIN metrics.system_cpu_usage cpu
+            ON t.service_name = cpu.labels->>'service'
+            AND time_bucket(INTERVAL '1 minute', t.time) = time_bucket(INTERVAL '1 minute', cpu.time)
+          WHERE t.status_code >= 400
+            AND t.time > now() - INTERVAL '1 hour';
+          ```
+
+          ## Documentation
+
+          - [Full Documentation](https://github.com/basekick-labs/arc-opentelemetry-exporter/blob/main/README.md)
+          - [Arc Database](https://github.com/basekick-labs/arc)
+          - [Quick Start Guide](https://github.com/basekick-labs/arc-opentelemetry-exporter/blob/main/QUICKSTART.md)
+
+          ## Checksums
+
+          See `checksums.txt` for SHA256 checksums of all binaries.
+
+          ---
+
+          **Full Changelog**: https://github.com/basekick-labs/arc-opentelemetry-exporter/commits/${{ steps.get_version.outputs.tag }}
+          EOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Release ${{ steps.get_version.outputs.tag }}
+          body_path: release_notes.md
+          files: |
+            bin/arc-exporter-*
+            bin/checksums.txt
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

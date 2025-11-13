@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -98,13 +99,23 @@ type metricBatch struct {
 }
 
 func (e *metricsExporter) batchToColumnar(metricName string, batch *metricBatch) ([]byte, error) {
+	// Serialize labels to JSON bytes as Arc expects
+	labelsBytes := make([][]byte, len(batch.labels))
+	for i, labels := range batch.labels {
+		jsonBytes, err := json.Marshal(labels)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal labels to JSON: %w", err)
+		}
+		labelsBytes[i] = jsonBytes
+	}
+
 	// Create columnar payload - each metric name gets its own measurement/table
 	columnarData := map[string]interface{}{
 		"m": metricName, // Use metric name as measurement/table name!
 		"columns": map[string]interface{}{
 			"time":   batch.times,
 			"value":  batch.values,
-			"labels": batch.labels,
+			"labels": labelsBytes,
 		},
 	}
 

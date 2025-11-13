@@ -1,0 +1,113 @@
+# OpenTelemetry Collector Configuration for Mac Monitoring
+# This configuration monitors your Mac's system metrics and sends them to Arc
+
+receivers:
+  # Host metrics receiver - collects system metrics from your Mac
+  hostmetrics:
+    collection_interval: 10s
+    scrapers:
+      # CPU metrics: usage per core, load average
+      cpu:
+        metrics:
+          system.cpu.utilization:
+            enabled: true
+
+      # Disk I/O metrics: read/write operations, bytes
+      disk:
+
+      # Filesystem metrics: usage, inodes
+      filesystem:
+        metrics:
+          system.filesystem.utilization:
+            enabled: true
+
+      # Load average metrics
+      load:
+
+      # Memory metrics: used, available, cached
+      memory:
+        metrics:
+          system.memory.utilization:
+            enabled: true
+
+      # Network metrics: packets, bytes, errors
+      network:
+
+      # Process count metrics
+      processes:
+
+  # OTLP receiver - for receiving traces/logs from applications
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Memory limiter - prevents OOM
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+
+  # Batch processor - batches telemetry data before export
+  batch:
+    timeout: 10s
+    send_batch_size: 1000
+
+  # Resource processor - adds identifying information
+  resource:
+    attributes:
+      - key: host.name
+        value: ${env:HOSTNAME}
+        action: insert
+      - key: environment
+        value: development
+        action: insert
+
+exporters:
+  # Arc exporter - sends data to Arc database
+  arc:
+    endpoint: http://localhost:8000
+
+    # Use separate databases for better organization
+    traces_database: traces
+    metrics_database: metrics
+    logs_database: logs
+
+    # HTTP settings
+    timeout: 30s
+    compression: gzip
+
+    # Retry configuration
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 300s
+
+  # Debug exporter - useful for testing
+  debug:
+    verbosity: basic
+    sampling_initial: 5
+    sampling_thereafter: 200
+
+service:
+  pipelines:
+    # Metrics pipeline - system metrics from your Mac
+    metrics:
+      receivers: [hostmetrics, otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [arc, debug]
+
+    # Traces pipeline - for application traces
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [arc]
+
+    # Logs pipeline - for application logs
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [arc]

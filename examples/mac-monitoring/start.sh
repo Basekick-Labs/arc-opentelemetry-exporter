@@ -9,16 +9,21 @@ cd "$SCRIPT_DIR"
 echo "🚀 Starting Mac Monitoring with OpenTelemetry + Arc"
 echo ""
 
+# Get GOPATH
+GOPATH="${GOPATH:-$(go env GOPATH)}"
+BUILDER="${GOPATH}/bin/builder"
+
 # Check if builder is installed
-if ! command -v builder &> /dev/null; then
+if [ ! -f "$BUILDER" ]; then
     echo "📦 Installing OpenTelemetry Collector Builder..."
     go install go.opentelemetry.io/collector/cmd/builder@v0.91.0
+    echo ""
 fi
 
 # Build collector if not exists
 if [ ! -f "./otelcol-arc/otelcol-arc" ]; then
     echo "🔨 Building custom OpenTelemetry Collector..."
-    builder --config builder-config.yaml
+    "$BUILDER" --config builder-config.yaml
     echo ""
 fi
 

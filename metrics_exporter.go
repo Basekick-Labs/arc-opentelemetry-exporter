@@ -11,6 +11,7 @@ import (
 
 	"github.com/vmihailenco/msgpack/v5"
 	"go.opentelemetry.io/collector/exporter"
+	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.uber.org/zap"
 )
@@ -39,6 +40,9 @@ func (e *metricsExporter) pushMetrics(ctx context.Context, md pmetric.Metrics) e
 	for i := 0; i < md.ResourceMetrics().Len(); i++ {
 		rm := md.ResourceMetrics().At(i)
 
+		// Extract resource attributes (host.name, service.name, etc.)
+		resourceAttrs := attributesToMap(rm.Resource().Attributes())
+
 		// Iterate through scope metrics
 		for j := 0; j < rm.ScopeMetrics().Len(); j++ {
 			sm := rm.ScopeMetrics().At(j)
@@ -60,16 +64,16 @@ func (e *metricsExporter) pushMetrics(ctx context.Context, md pmetric.Metrics) e
 					metricGroups[metricName] = batch
 				}
 
-				// Process based on metric type
+				// Process based on metric type (pass resource attributes)
 				switch metric.Type() {
 				case pmetric.MetricTypeGauge:
-					e.processGauge(metric, batch)
+					e.processGauge(metric, batch, resourceAttrs)
 				case pmetric.MetricTypeSum:
-					e.processSum(metric, batch)
+					e.processSum(metric, batch, resourceAttrs)
 				case pmetric.MetricTypeHistogram:
-					e.processHistogram(metric, batch)
+					e.processHistogram(metric, batch, resourceAttrs)
 				case pmetric.MetricTypeSummary:
-					e.processSummary(metric, batch)
+					e.processSummary(metric, batch, resourceAttrs)
 				}
 			}
 		}
@@ -151,25 +155,28 @@ func (e *metricsExporter) batchToColumnar(metricName string, batch *metricBatch)
 	return buf.Bytes(), nil
 }
 
-func (e *metricsExporter) processGauge(metric pmetric.Metric, batch *metricBatch) {
+func (e *metricsExporter) processGauge(metric pmetric.Metric, batch *metricBatch, resourceAttrs map[string]interface{}) {
 	gauge := metric.Gauge()
 	for i := 0; i < gauge.DataPoints().Len(); i++ {
 		dp := gauge.DataPoints().At(i)
 		batch.times = append(batch.times, dp.Timestamp().AsTime().UnixMilli())
 		batch.values = append(batch.values, getNumberValue(dp))
-		batch.labels = append(batch.labels, attributesToMap(dp.Attributes()))
+
+		// Merge resource attributes with data point attributes
+		labels := mergeAttributes(resourceAttrs, attributesToMap(dp.Attributes()))
+		batch.labels = append(batch.labels, labels)
 	}
 }
 
-func (e *metricsExporter) processSum(metric pmetric.Metric, batch *metricBatch) {
+func (e *metricsExporter) processSum(metric pmetric.Metric, batch *metricBatch, resourceAttrs map[string]interface{}) {
 	sum := metric.Sum()
 	for i := 0; i < sum.DataPoints().Len(); i++ {
 		dp := sum.DataPoints().At(i)
 		batch.times = append(batch.times, dp.Timestamp().AsTime().UnixMilli())
 		batch.values = append(batch.values, getNumberValue(dp))
 
-		// Get attributes as labels
-		labels := attributesToMap(dp.Attributes())
+		// Merge resource attributes with data point attributes
+		labels := mergeAttributes(resourceAttrs, attributesToMap(dp.Attributes()))
 
 		// Only include internal metadata if explicitly requested
 		if e.config.IncludeMetricMetadata {
@@ -181,11 +188,11 @@ func (e *metricsExporter) processSum(metric pmetric.Metric, batch *metricBatch) 
 	}
 }
 
-func (e *metricsExporter) processHistogram(metric pmetric.Metric, batch *metricBatch) {
+func (e *metricsExporter) processHistogram(metric pmetric.Metric, batch *metricBatch, resourceAttrs map[string]interface{}) {
 	histogram := metric.Histogram()
 	for i := 0; i < histogram.DataPoints().Len(); i++ {
 		dp := histogram.DataPoints().At(i)
-		attrs := attributesToMap(dp.Attributes())
+		attrs := mergeAttributes(resourceAttrs, attributesToMap(dp.Attributes()))
 
 		// Store histogram as multiple data points with different labels
 		// Count
@@ -257,11 +264,11 @@ func (e *metricsExporter) processHistogram(metric pmetric.Metric, batch *metricB
 	}
 }
 
-func (e *metricsExporter) processSummary(metric pmetric.Metric, batch *metricBatch) {
+func (e *metricsExporter) processSummary(metric pmetric.Metric, batch *metricBatch, resourceAttrs map[string]interface{}) {
 	summary := metric.Summary()
 	for i := 0; i < summary.DataPoints().Len(); i++ {
 		dp := summary.DataPoints().At(i)
-		attrs := attributesToMap(dp.Attributes())
+		attrs := mergeAttributes(resourceAttrs, attributesToMap(dp.Attributes()))
 
 		// Count
 		countLabels := copyMap(attrs)
@@ -372,4 +379,48 @@ func copyMap(m map[string]interface{}) map[string]interface{} {
 		result[k] = v
 	}
 	return result
+}
+
+// mergeAttributes merges resource attributes with data point attributes
+// Data point attributes take precedence over resource attributes
+func mergeAttributes(resourceAttrs, dataPointAttrs map[string]interface{}) map[string]interface{} {
+	result := make(map[string]interface{}, len(resourceAttrs)+len(dataPointAttrs))
+
+	// First copy resource attributes
+	for k, v := range resourceAttrs {
+		result[k] = v
+	}
+
+	// Then override with data point attributes
+	for k, v := range dataPointAttrs {
+		result[k] = v
+	}
+
+	return result
+}
+
+// attributesToMap converts OTel attributes to a Go map
+func attributesToMap(attrs pcommon.Map) map[string]interface{} {
+	result := make(map[string]interface{})
+	attrs.Range(func(k string, v pcommon.Value) bool {
+		result[k] = valueToInterface(v)
+		return true
+	})
+	return result
+}
+
+// valueToInterface converts an OTel value to a Go interface{}
+func valueToInterface(v pcommon.Value) interface{} {
+	switch v.Type() {
+	case pcommon.ValueTypeStr:
+		return v.Str()
+	case pcommon.ValueTypeInt:
+		return v.Int()
+	case pcommon.ValueTypeDouble:
+		return v.Double()
+	case pcommon.ValueTypeBool:
+		return v.Bool()
+	default:
+		return v.AsString()
+	}
 }

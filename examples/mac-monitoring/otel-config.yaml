@@ -58,9 +58,6 @@ processors:
   # Resource processor - adds identifying information
   resource:
     attributes:
-      - key: host.name
-        value: ${env:HOSTNAME}
-        action: insert
       - key: environment
         value: development
         action: insert
@@ -70,7 +67,7 @@ exporters:
   arc:
     endpoint: http://localhost:8000
 
-    # Authentication token from environment variable
+    # Authentication token from environment variable (optional)
     auth_token: ${env:ARC_AUTH_TOKEN}
 
     # Use separate databases for better organization

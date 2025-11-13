@@ -50,32 +50,32 @@ case "${1:-dashboard}" in
 
         header "💻 CPU Usage (Last Minute)"
         query "SELECT
-            labels->>'cpu' as cpu,
-            labels->>'state' as state,
+            cpu,
+            state,
             round(avg(value)::numeric, 2) as avg_value
         FROM ${DATABASE}.system_cpu_time
         WHERE time > now() - INTERVAL '1 minute'
-        GROUP BY labels->>'cpu', labels->>'state'
+        GROUP BY cpu, state
         ORDER BY cpu, state
         LIMIT 20"
 
         header "🧠 Memory Usage"
         query "SELECT
-            labels->>'state' as state,
+            state,
             round((avg(value) / 1024 / 1024 / 1024)::numeric, 2) as avg_gb
         FROM ${DATABASE}.system_memory_usage
         WHERE time > now() - INTERVAL '5 minutes'
-        GROUP BY labels->>'state'"
+        GROUP BY state"
 
         header "💾 Disk Usage"
         query "SELECT
-            labels->>'device' as device,
-            labels->>'mountpoint' as mountpoint,
+            device,
+            mountpoint,
             round((avg(value) / 1024 / 1024 / 1024)::numeric, 2) as used_gb
         FROM ${DATABASE}.system_filesystem_usage
         WHERE time > now() - INTERVAL '5 minutes'
-            AND labels->>'state' = 'used'
-        GROUP BY labels->>'device', labels->>'mountpoint'
+            AND state = 'used'
+        GROUP BY device, mountpoint
         LIMIT 10"
 
         header "📊 Load Average"
@@ -91,8 +91,8 @@ case "${1:-dashboard}" in
         header "💻 CPU Metrics"
         query "SELECT
             time,
-            labels->>'cpu' as cpu,
-            labels->>'state' as state,
+            cpu,
+            state,
             round(value::numeric, 2) as value
         FROM ${DATABASE}.system_cpu_time
         ORDER BY time DESC
@@ -103,7 +103,7 @@ case "${1:-dashboard}" in
         header "🧠 Memory Metrics"
         query "SELECT
             time,
-            labels->>'state' as state,
+            state,
             round((value / 1024 / 1024 / 1024)::numeric, 2) as gb
         FROM ${DATABASE}.system_memory_usage
         ORDER BY time DESC, state
@@ -114,8 +114,8 @@ case "${1:-dashboard}" in
         header "💾 Disk I/O Metrics"
         query "SELECT
             time,
-            labels->>'device' as device,
-            labels->>'direction' as direction,
+            device,
+            direction,
             round((value / 1024 / 1024)::numeric, 2) as mb
         FROM ${DATABASE}.system_disk_io
         ORDER BY time DESC
@@ -126,8 +126,8 @@ case "${1:-dashboard}" in
         header "🌐 Network Metrics"
         query "SELECT
             time,
-            labels->>'device' as device,
-            labels->>'direction' as direction,
+            device,
+            direction,
             round((value / 1024 / 1024)::numeric, 2) as mb
         FROM ${DATABASE}.system_network_io
         ORDER BY time DESC

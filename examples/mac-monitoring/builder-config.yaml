@@ -9,24 +9,17 @@ dist:
 
 exporters:
   - gomod: github.com/basekick-labs/arc-opentelemetry-exporter v0.1.0
-    import: github.com/basekick-labs/arc-opentelemetry-exporter
-    path: ${GOMODCACHE}/github.com/basekick-labs/arc-opentelemetry-exporter@v0.1.0
 
 receivers:
   # OTLP receiver for receiving telemetry from applications
   - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.91.0
-    import: go.opentelemetry.io/collector/receiver/otlpreceiver
 
   # Host metrics receiver for system monitoring
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/hostmetricsreceiver v0.91.0
-    import: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/hostmetricsreceiver
 
 processors:
   - gomod: go.opentelemetry.io/collector/processor/batchprocessor v0.91.0
-    import: go.opentelemetry.io/collector/processor/batchprocessor
   - gomod: go.opentelemetry.io/collector/processor/memorylimiterprocessor v0.91.0
-    import: go.opentelemetry.io/collector/processor/memorylimiterprocessor
 
   # Resource processor to add labels
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/resourceprocessor v0.91.0
-    import: github.com/open-telemetry/opentelemetry-collector-contrib/processor/resourceprocessor

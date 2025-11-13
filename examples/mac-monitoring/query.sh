@@ -12,7 +12,10 @@ NC='\033[0m' # No Color
 
 function query() {
     local sql="$1"
-    curl -s "${ARC_URL}/api/v1/query/sql?database=${DATABASE}" -d "$sql" | jq .
+    curl -s -X POST "${ARC_URL}/api/v1/query" \
+        -H "Content-Type: application/json" \
+        -H "x-arc-database: ${DATABASE}" \
+        -d "{\"sql\":$(echo "$sql" | jq -Rs .),\"format\":\"json\"}" | jq .
 }
 
 function header() {

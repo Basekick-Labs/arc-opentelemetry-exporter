@@ -398,29 +398,3 @@ func mergeAttributes(resourceAttrs, dataPointAttrs map[string]interface{}) map[s
 
 	return result
 }
-
-// attributesToMap converts OTel attributes to a Go map
-func attributesToMap(attrs pcommon.Map) map[string]interface{} {
-	result := make(map[string]interface{})
-	attrs.Range(func(k string, v pcommon.Value) bool {
-		result[k] = valueToInterface(v)
-		return true
-	})
-	return result
-}
-
-// valueToInterface converts an OTel value to a Go interface{}
-func valueToInterface(v pcommon.Value) interface{} {
-	switch v.Type() {
-	case pcommon.ValueTypeStr:
-		return v.Str()
-	case pcommon.ValueTypeInt:
-		return v.Int()
-	case pcommon.ValueTypeDouble:
-		return v.Double()
-	case pcommon.ValueTypeBool:
-		return v.Bool()
-	default:
-		return v.AsString()
-	}
-}

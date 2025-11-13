@@ -49,8 +49,10 @@ exporters:
 
     # Measurement/table names (optional)
     traces_measurement: distributed_traces
-    metrics_measurement: metrics
     logs_measurement: logs
+
+    # Note: Metrics automatically use metric name as table name
+    # e.g., "system.cpu.usage" -> "system_cpu_usage" table
 
     # HTTP client settings (optional)
     timeout: 30s
@@ -163,18 +165,50 @@ The exporter uses Arc's high-performance columnar msgpack format:
 ```
 
 ### Metrics Format
+
+**Important:** Each metric name becomes its own table (measurement) in Arc. This prevents schema conflicts between different metric types.
+
+**Example 1: Counter Metric**
 ```json
 {
-  "m": "metrics",
+  "m": "http_requests_total",  // Metric name as table name
   "columns": {
     "time": [1699900000000, ...],
-    "metric_name": ["http_requests_total", ...],
-    "metric_type": ["counter", ...],
-    "value": [42.0, ...],
-    "labels": [{"service": "api"}, ...]
+    "value": [42.0, 105.0, ...],
+    "labels": [
+      {"service": "api", "method": "GET", "status": "200"},
+      {"service": "api", "method": "POST", "status": "201"},
+      ...
+    ]
   }
 }
 ```
+
+**Example 2: Gauge Metric**
+```json
+{
+  "m": "system_cpu_usage",  // system.cpu.usage -> system_cpu_usage
+  "columns": {
+    "time": [1699900000000, ...],
+    "value": [45.5, 52.3, ...],
+    "labels": [
+      {"host": "server1", "cpu": "cpu0"},
+      {"host": "server1", "cpu": "cpu1"},
+      ...
+    ]
+  }
+}
+```
+
+**Metric Name Sanitization:**
+- Dots (`.`) → Underscores (`_`)
+- Dashes (`-`) → Underscores (`_`)
+- Special characters removed
+
+Examples:
+- `system.cpu.usage` → `system_cpu_usage`
+- `http.server.duration` → `http_server_duration`
+- `process-memory-bytes` → `process_memory_bytes`
 
 ### Logs Format
 ```json
@@ -189,6 +223,68 @@ The exporter uses Arc's high-performance columnar msgpack format:
     "attributes": [{"user_id": "123"}, ...]
   }
 }
+```
+
+## Querying Data in Arc
+
+### Traces
+
+```sql
+-- All traces
+SELECT * FROM distributed_traces
+WHERE time > now() - INTERVAL '1 hour'
+LIMIT 100;
+
+-- Traces by service
+SELECT service_name, operation_name, duration_ns / 1000000 AS duration_ms
+FROM distributed_traces
+WHERE service_name = 'api-gateway'
+ORDER BY time DESC;
+```
+
+### Metrics
+
+Each metric is in its own table. List all tables to see available metrics:
+
+```sql
+-- Show all metric tables
+SHOW TABLES;
+```
+
+Query specific metrics:
+
+```sql
+-- CPU usage
+SELECT time, value, labels
+FROM system_cpu_usage
+WHERE time > now() - INTERVAL '1 hour'
+ORDER BY time DESC;
+
+-- HTTP requests (if using labels as JSON)
+SELECT
+  time,
+  value,
+  labels->>'method' AS method,
+  labels->>'status' AS status
+FROM http_requests_total
+WHERE time > now() - INTERVAL '1 hour';
+```
+
+### Logs
+
+```sql
+-- Recent logs
+SELECT time, severity, body, service_name
+FROM logs
+WHERE time > now() - INTERVAL '1 hour'
+ORDER BY time DESC
+LIMIT 100;
+
+-- Error logs
+SELECT *
+FROM logs
+WHERE severity IN ('ERROR', 'FATAL')
+  AND time > now() - INTERVAL '1 hour';
 ```
 
 ## Performance

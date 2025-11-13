@@ -36,11 +36,10 @@ func createDefaultConfig() component.Config {
 			Timeout:     defaultTimeout,
 			Compression: "gzip",
 		},
-		BackOffConfig: configretry.NewDefaultBackOffConfig(),
-		Database:      "default",
-		TracesMeasurement:  "distributed_traces",
-		MetricsMeasurement: "metrics",
-		LogsMeasurement:    "logs",
+		BackOffConfig:     configretry.NewDefaultBackOffConfig(),
+		Database:          "default",
+		TracesMeasurement: "distributed_traces",
+		LogsMeasurement:   "logs",
 	}
 }
 

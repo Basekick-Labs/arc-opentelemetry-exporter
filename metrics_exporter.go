@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/vmihailenco/msgpack/v5"
 	"go.opentelemetry.io/collector/exporter"
@@ -31,24 +32,8 @@ func newMetricsExporter(config *Config, set exporter.CreateSettings) *metricsExp
 }
 
 func (e *metricsExporter) pushMetrics(ctx context.Context, md pmetric.Metrics) error {
-	// Convert OTel metrics to Arc columnar format
-	payload, err := e.metricsToColumnar(md)
-	if err != nil {
-		return fmt.Errorf("failed to convert metrics: %w", err)
-	}
-
-	// Send to Arc
-	return e.sendToArc(ctx, payload)
-}
-
-func (e *metricsExporter) metricsToColumnar(md pmetric.Metrics) ([]byte, error) {
-	// Columnar arrays
-	times := []int64{}
-	metricNames := []string{}
-	metricTypes := []string{}
-	metricUnits := []string{}
-	values := []float64{}
-	labels := []map[string]interface{}{}
+	// Group metrics by name (each metric name becomes a separate measurement/table)
+	metricGroups := make(map[string]*metricBatch)
 
 	// Iterate through resource metrics
 	for i := 0; i < md.ResourceMetrics().Len(); i++ {
@@ -61,32 +46,65 @@ func (e *metricsExporter) metricsToColumnar(md pmetric.Metrics) ([]byte, error) 
 			// Iterate through metrics
 			for k := 0; k < sm.Metrics().Len(); k++ {
 				metric := sm.Metrics().At(k)
+				metricName := sanitizeMetricName(metric.Name())
+
+				// Get or create batch for this metric name
+				batch, ok := metricGroups[metricName]
+				if !ok {
+					batch = &metricBatch{
+						name:   metricName,
+						times:  []int64{},
+						values: []float64{},
+						labels: []map[string]interface{}{},
+					}
+					metricGroups[metricName] = batch
+				}
 
 				// Process based on metric type
 				switch metric.Type() {
 				case pmetric.MetricTypeGauge:
-					e.processGauge(metric, &times, &metricNames, &metricTypes, &metricUnits, &values, &labels)
+					e.processGauge(metric, batch)
 				case pmetric.MetricTypeSum:
-					e.processSum(metric, &times, &metricNames, &metricTypes, &metricUnits, &values, &labels)
+					e.processSum(metric, batch)
 				case pmetric.MetricTypeHistogram:
-					e.processHistogram(metric, &times, &metricNames, &metricTypes, &metricUnits, &values, &labels)
+					e.processHistogram(metric, batch)
 				case pmetric.MetricTypeSummary:
-					e.processSummary(metric, &times, &metricNames, &metricTypes, &metricUnits, &values, &labels)
+					e.processSummary(metric, batch)
 				}
 			}
 		}
 	}
 
-	// Create columnar payload
+	// Send each metric group as a separate payload
+	for metricName, batch := range metricGroups {
+		payload, err := e.batchToColumnar(metricName, batch)
+		if err != nil {
+			return fmt.Errorf("failed to convert metric %s: %w", metricName, err)
+		}
+
+		if err := e.sendToArc(ctx, payload); err != nil {
+			return fmt.Errorf("failed to send metric %s: %w", metricName, err)
+		}
+	}
+
+	return nil
+}
+
+type metricBatch struct {
+	name   string
+	times  []int64
+	values []float64
+	labels []map[string]interface{}
+}
+
+func (e *metricsExporter) batchToColumnar(metricName string, batch *metricBatch) ([]byte, error) {
+	// Create columnar payload - each metric name gets its own measurement/table
 	columnarData := map[string]interface{}{
-		"m": e.config.MetricsMeasurement,
+		"m": metricName, // Use metric name as measurement/table name!
 		"columns": map[string]interface{}{
-			"time":        times,
-			"metric_name": metricNames,
-			"metric_type": metricTypes,
-			"metric_unit": metricUnits,
-			"value":       values,
-			"labels":      labels,
+			"time":   batch.times,
+			"value":  batch.values,
+			"labels": batch.labels,
 		},
 	}
 
@@ -109,152 +127,117 @@ func (e *metricsExporter) metricsToColumnar(md pmetric.Metrics) ([]byte, error) 
 	return buf.Bytes(), nil
 }
 
-func (e *metricsExporter) processGauge(
-	metric pmetric.Metric,
-	times *[]int64,
-	metricNames *[]string,
-	metricTypes *[]string,
-	metricUnits *[]string,
-	values *[]float64,
-	labels *[]map[string]interface{},
-) {
+func (e *metricsExporter) processGauge(metric pmetric.Metric, batch *metricBatch) {
 	gauge := metric.Gauge()
 	for i := 0; i < gauge.DataPoints().Len(); i++ {
 		dp := gauge.DataPoints().At(i)
-		*times = append(*times, dp.Timestamp().AsTime().UnixMilli())
-		*metricNames = append(*metricNames, metric.Name())
-		*metricTypes = append(*metricTypes, "gauge")
-		*metricUnits = append(*metricUnits, metric.Unit())
-		*values = append(*values, getNumberValue(dp))
-		*labels = append(*labels, attributesToMap(dp.Attributes()))
+		batch.times = append(batch.times, dp.Timestamp().AsTime().UnixMilli())
+		batch.values = append(batch.values, getNumberValue(dp))
+		batch.labels = append(batch.labels, attributesToMap(dp.Attributes()))
 	}
 }
 
-func (e *metricsExporter) processSum(
-	metric pmetric.Metric,
-	times *[]int64,
-	metricNames *[]string,
-	metricTypes *[]string,
-	metricUnits *[]string,
-	values *[]float64,
-	labels *[]map[string]interface{},
-) {
+func (e *metricsExporter) processSum(metric pmetric.Metric, batch *metricBatch) {
 	sum := metric.Sum()
-	metricType := "counter"
-	if !sum.IsMonotonic() {
-		metricType = "gauge"
-	}
-
 	for i := 0; i < sum.DataPoints().Len(); i++ {
 		dp := sum.DataPoints().At(i)
-		*times = append(*times, dp.Timestamp().AsTime().UnixMilli())
-		*metricNames = append(*metricNames, metric.Name())
-		*metricTypes = append(*metricTypes, metricType)
-		*metricUnits = append(*metricUnits, metric.Unit())
-		*values = append(*values, getNumberValue(dp))
-		*labels = append(*labels, attributesToMap(dp.Attributes()))
+		batch.times = append(batch.times, dp.Timestamp().AsTime().UnixMilli())
+		batch.values = append(batch.values, getNumberValue(dp))
+
+		// Add metadata to labels
+		labels := attributesToMap(dp.Attributes())
+		labels["_monotonic"] = sum.IsMonotonic()
+		labels["_aggregation_temporality"] = sum.AggregationTemporality().String()
+		batch.labels = append(batch.labels, labels)
 	}
 }
 
-func (e *metricsExporter) processHistogram(
-	metric pmetric.Metric,
-	times *[]int64,
-	metricNames *[]string,
-	metricTypes *[]string,
-	metricUnits *[]string,
-	values *[]float64,
-	labels *[]map[string]interface{},
-) {
+func (e *metricsExporter) processHistogram(metric pmetric.Metric, batch *metricBatch) {
 	histogram := metric.Histogram()
 	for i := 0; i < histogram.DataPoints().Len(); i++ {
 		dp := histogram.DataPoints().At(i)
-
-		// Store histogram summary stats as separate metrics
 		attrs := attributesToMap(dp.Attributes())
 
+		// Store histogram as multiple data points with different labels
 		// Count
-		*times = append(*times, dp.Timestamp().AsTime().UnixMilli())
-		*metricNames = append(*metricNames, metric.Name()+"_count")
-		*metricTypes = append(*metricTypes, "histogram_count")
-		*metricUnits = append(*metricUnits, "")
-		*values = append(*values, float64(dp.Count()))
-		*labels = append(*labels, attrs)
+		countLabels := copyMap(attrs)
+		countLabels["_histogram_field"] = "count"
+		batch.times = append(batch.times, dp.Timestamp().AsTime().UnixMilli())
+		batch.values = append(batch.values, float64(dp.Count()))
+		batch.labels = append(batch.labels, countLabels)
 
 		// Sum
-		*times = append(*times, dp.Timestamp().AsTime().UnixMilli())
-		*metricNames = append(*metricNames, metric.Name()+"_sum")
-		*metricTypes = append(*metricTypes, "histogram_sum")
-		*metricUnits = append(*metricUnits, metric.Unit())
-		*values = append(*values, dp.Sum())
-		*labels = append(*labels, attrs)
+		sumLabels := copyMap(attrs)
+		sumLabels["_histogram_field"] = "sum"
+		batch.times = append(batch.times, dp.Timestamp().AsTime().UnixMilli())
+		batch.values = append(batch.values, dp.Sum())
+		batch.labels = append(batch.labels, sumLabels)
+
+		// Min (if available)
+		if dp.HasMin() {
+			minLabels := copyMap(attrs)
+			minLabels["_histogram_field"] = "min"
+			batch.times = append(batch.times, dp.Timestamp().AsTime().UnixMilli())
+			batch.values = append(batch.values, dp.Min())
+			batch.labels = append(batch.labels, minLabels)
+		}
+
+		// Max (if available)
+		if dp.HasMax() {
+			maxLabels := copyMap(attrs)
+			maxLabels["_histogram_field"] = "max"
+			batch.times = append(batch.times, dp.Timestamp().AsTime().UnixMilli())
+			batch.values = append(batch.values, dp.Max())
+			batch.labels = append(batch.labels, maxLabels)
+		}
 
 		// Buckets
 		for j := 0; j < dp.BucketCounts().Len(); j++ {
-			bucketAttrs := make(map[string]interface{})
-			for k, v := range attrs {
-				bucketAttrs[k] = v
-			}
+			bucketLabels := copyMap(attrs)
+			bucketLabels["_histogram_field"] = "bucket"
 			if j < dp.ExplicitBounds().Len() {
-				bucketAttrs["le"] = dp.ExplicitBounds().At(j)
+				bucketLabels["le"] = dp.ExplicitBounds().At(j)
 			} else {
-				bucketAttrs["le"] = "+Inf"
+				bucketLabels["le"] = "+Inf"
 			}
 
-			*times = append(*times, dp.Timestamp().AsTime().UnixMilli())
-			*metricNames = append(*metricNames, metric.Name()+"_bucket")
-			*metricTypes = append(*metricTypes, "histogram_bucket")
-			*metricUnits = append(*metricUnits, "")
-			*values = append(*values, float64(dp.BucketCounts().At(j)))
-			*labels = append(*labels, bucketAttrs)
+			batch.times = append(batch.times, dp.Timestamp().AsTime().UnixMilli())
+			batch.values = append(batch.values, float64(dp.BucketCounts().At(j)))
+			batch.labels = append(batch.labels, bucketLabels)
 		}
 	}
 }
 
-func (e *metricsExporter) processSummary(
-	metric pmetric.Metric,
-	times *[]int64,
-	metricNames *[]string,
-	metricTypes *[]string,
-	metricUnits *[]string,
-	values *[]float64,
-	labels *[]map[string]interface{},
-) {
+func (e *metricsExporter) processSummary(metric pmetric.Metric, batch *metricBatch) {
 	summary := metric.Summary()
 	for i := 0; i < summary.DataPoints().Len(); i++ {
 		dp := summary.DataPoints().At(i)
 		attrs := attributesToMap(dp.Attributes())
 
 		// Count
-		*times = append(*times, dp.Timestamp().AsTime().UnixMilli())
-		*metricNames = append(*metricNames, metric.Name()+"_count")
-		*metricTypes = append(*metricTypes, "summary_count")
-		*metricUnits = append(*metricUnits, "")
-		*values = append(*values, float64(dp.Count()))
-		*labels = append(*labels, attrs)
+		countLabels := copyMap(attrs)
+		countLabels["_summary_field"] = "count"
+		batch.times = append(batch.times, dp.Timestamp().AsTime().UnixMilli())
+		batch.values = append(batch.values, float64(dp.Count()))
+		batch.labels = append(batch.labels, countLabels)
 
 		// Sum
-		*times = append(*times, dp.Timestamp().AsTime().UnixMilli())
-		*metricNames = append(*metricNames, metric.Name()+"_sum")
-		*metricTypes = append(*metricTypes, "summary_sum")
-		*metricUnits = append(*metricUnits, metric.Unit())
-		*values = append(*values, dp.Sum())
-		*labels = append(*labels, attrs)
+		sumLabels := copyMap(attrs)
+		sumLabels["_summary_field"] = "sum"
+		batch.times = append(batch.times, dp.Timestamp().AsTime().UnixMilli())
+		batch.values = append(batch.values, dp.Sum())
+		batch.labels = append(batch.labels, sumLabels)
 
 		// Quantiles
 		for j := 0; j < dp.QuantileValues().Len(); j++ {
 			qv := dp.QuantileValues().At(j)
-			quantileAttrs := make(map[string]interface{})
-			for k, v := range attrs {
-				quantileAttrs[k] = v
-			}
-			quantileAttrs["quantile"] = qv.Quantile()
+			quantileLabels := copyMap(attrs)
+			quantileLabels["_summary_field"] = "quantile"
+			quantileLabels["quantile"] = qv.Quantile()
 
-			*times = append(*times, dp.Timestamp().AsTime().UnixMilli())
-			*metricNames = append(*metricNames, metric.Name())
-			*metricTypes = append(*metricTypes, "summary_quantile")
-			*metricUnits = append(*metricUnits, metric.Unit())
-			*values = append(*values, qv.Value())
-			*labels = append(*labels, quantileAttrs)
+			batch.times = append(batch.times, dp.Timestamp().AsTime().UnixMilli())
+			batch.values = append(batch.values, qv.Value())
+			batch.labels = append(batch.labels, quantileLabels)
 		}
 	}
 }
@@ -301,4 +284,30 @@ func getNumberValue(dp pmetric.NumberDataPoint) float64 {
 	default:
 		return 0
 	}
+}
+
+// sanitizeMetricName converts OTel metric names to Arc-friendly table names
+// e.g., "system.cpu.usage" -> "system_cpu_usage"
+func sanitizeMetricName(name string) string {
+	// Replace dots with underscores
+	name = strings.ReplaceAll(name, ".", "_")
+	// Replace dashes with underscores
+	name = strings.ReplaceAll(name, "-", "_")
+	// Remove any other special characters
+	name = strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
+			return r
+		}
+		return '_'
+	}, name)
+	return name
+}
+
+// copyMap creates a shallow copy of a map
+func copyMap(m map[string]interface{}) map[string]interface{} {
+	result := make(map[string]interface{}, len(m))
+	for k, v := range m {
+		result[k] = v
+	}
+	return result
 }

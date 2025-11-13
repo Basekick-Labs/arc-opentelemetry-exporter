@@ -36,8 +36,10 @@ exporters:
 
     # Measurement/table names (optional)
     traces_measurement: distributed_traces
-    metrics_measurement: metrics
     logs_measurement: logs
+
+    # Note: Metrics automatically use metric name as table name
+    # e.g., "system.cpu.usage" -> "system_cpu_usage" table
 
     # HTTP client settings
     timeout: 30s

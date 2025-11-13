@@ -25,11 +25,11 @@ type Config struct {
 	// TracesMeasurement is the measurement name for traces (default: "distributed_traces")
 	TracesMeasurement string `mapstructure:"traces_measurement"`
 
-	// MetricsMeasurement is the measurement name for metrics (default: "metrics")
-	MetricsMeasurement string `mapstructure:"metrics_measurement"`
-
 	// LogsMeasurement is the measurement name for logs (default: "logs")
 	LogsMeasurement string `mapstructure:"logs_measurement"`
+
+	// Note: Metrics do not have a single measurement name. Each metric name becomes
+	// its own measurement/table (e.g., "system.cpu.usage" -> "system_cpu_usage" table)
 }
 
 var _ component.Config = (*Config)(nil)
@@ -46,9 +46,6 @@ func (cfg *Config) Validate() error {
 	}
 	if cfg.TracesMeasurement == "" {
 		cfg.TracesMeasurement = "distributed_traces"
-	}
-	if cfg.MetricsMeasurement == "" {
-		cfg.MetricsMeasurement = "metrics"
 	}
 	if cfg.LogsMeasurement == "" {
 		cfg.LogsMeasurement = "logs"

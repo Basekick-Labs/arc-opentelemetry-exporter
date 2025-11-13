@@ -18,18 +18,10 @@ System metrics every 10 seconds:
 ### 1. Start Arc
 
 ```bash
-cd /Users/nacho/dev/basekick-labs/arc
 docker run -d -p 8000:8000 \
   -e STORAGE_BACKEND=local \
   -v arc-data:/app/data \
-  --name arc \
-  ghcr.io/basekick-labs/arc:latest
-```
-
-Or run from source:
-```bash
-cd /Users/nacho/dev/basekick-labs/arc
-make run
+  ghcr.io/basekick-labs/arc:25.11.1
 ```
 
 ### 2. Install OpenTelemetry Collector Builder

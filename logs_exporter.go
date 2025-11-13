@@ -213,21 +213,3 @@ func (e *logsExporter) sendToArc(ctx context.Context, payload []byte) error {
 
 	return nil
 }
-
-// mergeAttributes merges resource attributes with log attributes
-// Log attributes take precedence over resource attributes
-func mergeAttributes(resourceAttrs, logAttrs map[string]interface{}) map[string]interface{} {
-	result := make(map[string]interface{}, len(resourceAttrs)+len(logAttrs))
-
-	// First copy resource attributes
-	for k, v := range resourceAttrs {
-		result[k] = v
-	}
-
-	// Then override with log attributes
-	for k, v := range logAttrs {
-		result[k] = v
-	}
-
-	return result
-}

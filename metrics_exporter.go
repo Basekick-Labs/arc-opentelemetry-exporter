@@ -379,21 +379,3 @@ func copyMap(m map[string]interface{}) map[string]interface{} {
 	}
 	return result
 }
-
-// mergeAttributes merges resource attributes with data point attributes
-// Data point attributes take precedence over resource attributes
-func mergeAttributes(resourceAttrs, dataPointAttrs map[string]interface{}) map[string]interface{} {
-	result := make(map[string]interface{}, len(resourceAttrs)+len(dataPointAttrs))
-
-	// First copy resource attributes
-	for k, v := range resourceAttrs {
-		result[k] = v
-	}
-
-	// Then override with data point attributes
-	for k, v := range dataPointAttrs {
-		result[k] = v
-	}
-
-	return result
-}

@@ -265,21 +265,3 @@ func valueToInterface(v pcommon.Value) interface{} {
 		return nil
 	}
 }
-
-// mergeAttributes merges resource attributes with span attributes
-// Span attributes take precedence over resource attributes
-func mergeAttributes(resourceAttrs, spanAttrs map[string]interface{}) map[string]interface{} {
-	result := make(map[string]interface{}, len(resourceAttrs)+len(spanAttrs))
-
-	// First copy resource attributes
-	for k, v := range resourceAttrs {
-		result[k] = v
-	}
-
-	// Then override with span attributes
-	for k, v := range spanAttrs {
-		result[k] = v
-	}
-
-	return result
-}

@@ -9,8 +9,19 @@ cd "$SCRIPT_DIR"
 echo "🚀 Starting Mac Monitoring with OpenTelemetry + Arc"
 echo ""
 
-# Get GOPATH
-GOPATH="${GOPATH:-$(go env GOPATH)}"
+# Setup Go environment
+if command -v go &> /dev/null; then
+    export PATH="$PATH:$(go env GOPATH)/bin"
+    GOPATH="$(go env GOPATH)"
+elif [ -f "/opt/homebrew/bin/go" ]; then
+    export PATH="$PATH:/opt/homebrew/bin"
+    export PATH="$PATH:$(/opt/homebrew/bin/go env GOPATH)/bin"
+    GOPATH="$(/opt/homebrew/bin/go env GOPATH)"
+else
+    echo "❌ Go not found. Please install Go first."
+    exit 1
+fi
+
 BUILDER="${GOPATH}/bin/builder"
 
 # Check if builder is installed

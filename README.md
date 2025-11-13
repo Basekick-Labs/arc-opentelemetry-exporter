@@ -297,29 +297,25 @@ logs/
 
 ```sql
 -- All traces
-SELECT * FROM distributed_traces
+SELECT * FROM traces.distributed_traces
 WHERE time > now() - INTERVAL '1 hour'
 LIMIT 100;
 
 -- Traces by service
 SELECT service_name, operation_name, duration_ns / 1000000 AS duration_ms
-FROM distributed_traces
+FROM traces.distributed_traces
 WHERE service_name = 'api-gateway'
 ORDER BY time DESC;
+
+-- Filter by trace_id for debugging
+SELECT * FROM traces.distributed_traces
+WHERE trace_id = '5b8efff798038103d269b633813fc60c'
+ORDER BY time;
 ```
 
 ### Metrics
 
-Each metric is in its own table. List all tables to see available metrics:
-
-```sql
--- Show all metric tables (if using separate database)
--- First, connect to metrics database
-USE metrics;
-SHOW TABLES;
-```
-
-Query specific metrics:
+Each metric is in its own table in the metrics database.
 
 ```sql
 -- CPU usage
@@ -328,19 +324,30 @@ FROM metrics.system_cpu_usage
 WHERE time > now() - INTERVAL '1 hour'
 ORDER BY time DESC;
 
--- HTTP requests (if using labels as JSON)
+-- Memory usage
+SELECT time, value, labels
+FROM metrics.system_memory_usage
+WHERE time > now() - INTERVAL '1 hour'
+ORDER BY time DESC;
+
+-- HTTP requests (extracting labels as JSON fields)
 SELECT
   time,
   value,
   labels->>'method' AS method,
-  labels->>'status' AS status
+  labels->>'status' AS status,
+  labels->>'service' AS service
 FROM metrics.http_requests_total
 WHERE time > now() - INTERVAL '1 hour';
 
--- Or without database prefix if already connected
-SELECT time, value, labels
-FROM system_cpu_usage
-WHERE time > now() - INTERVAL '1 hour';
+-- Aggregate metrics (e.g., requests per minute)
+SELECT
+  time_bucket(INTERVAL '1 minute', time) AS minute,
+  SUM(value) AS total_requests
+FROM metrics.http_requests_total
+WHERE time > now() - INTERVAL '1 hour'
+GROUP BY minute
+ORDER BY minute;
 ```
 
 ### Logs
@@ -348,17 +355,188 @@ WHERE time > now() - INTERVAL '1 hour';
 ```sql
 -- Recent logs
 SELECT time, severity, body, service_name
-FROM logs
+FROM logs.logs
 WHERE time > now() - INTERVAL '1 hour'
 ORDER BY time DESC
 LIMIT 100;
 
--- Error logs
-SELECT *
-FROM logs
+-- Error logs only
+SELECT time, severity, body, service_name, trace_id
+FROM logs.logs
 WHERE severity IN ('ERROR', 'FATAL')
-  AND time > now() - INTERVAL '1 hour';
+  AND time > now() - INTERVAL '1 hour'
+ORDER BY time DESC;
+
+-- Logs for a specific trace (correlation with traces)
+SELECT l.time, l.severity, l.body, l.service_name
+FROM logs.logs l
+WHERE l.trace_id = '5b8efff798038103d269b633813fc60c'
+ORDER BY l.time;
+
+-- Count errors by service
+SELECT
+  service_name,
+  COUNT(*) AS error_count
+FROM logs.logs
+WHERE severity IN ('ERROR', 'FATAL')
+  AND time > now() - INTERVAL '1 hour'
+GROUP BY service_name
+ORDER BY error_count DESC;
 ```
+
+### Unified Observability: Join Across Signals (Arc's Flagship Feature!)
+
+One of Arc's most powerful capabilities is the ability to **correlate traces, metrics, and logs in a single SQL query**. This is what makes Arc truly unified observability.
+
+#### Example 1: Full Context for Failed Requests
+
+Get traces, error logs, and CPU metrics for failed requests in one query:
+
+```sql
+-- Correlate traces with errors and system metrics
+SELECT
+  t.time,
+  t.trace_id,
+  t.service_name,
+  t.operation_name,
+  t.duration_ns / 1000000 AS duration_ms,
+  t.status_code,
+  l.severity,
+  l.body AS error_message,
+  cpu.value AS cpu_usage
+FROM traces.distributed_traces t
+LEFT JOIN logs.logs l
+  ON t.trace_id = l.trace_id
+LEFT JOIN metrics.system_cpu_usage cpu
+  ON t.service_name = cpu.labels->>'service'
+  AND time_bucket(INTERVAL '1 minute', t.time) = time_bucket(INTERVAL '1 minute', cpu.time)
+WHERE t.status_code >= 400
+  AND t.time > now() - INTERVAL '1 hour'
+ORDER BY t.time DESC
+LIMIT 100;
+```
+
+This query shows:
+- **Traces**: Which requests failed and how long they took
+- **Logs**: Error messages associated with those traces
+- **Metrics**: CPU usage at the time of failure
+
+#### Example 2: Service Health Dashboard
+
+Complete service health in one query:
+
+```sql
+-- Service health: error rate, latency, and resource usage
+WITH time_window AS (
+  SELECT time_bucket(INTERVAL '5 minutes', time) AS bucket
+  FROM traces.distributed_traces
+  WHERE time > now() - INTERVAL '1 hour'
+  GROUP BY bucket
+),
+trace_stats AS (
+  SELECT
+    time_bucket(INTERVAL '5 minutes', time) AS bucket,
+    service_name,
+    COUNT(*) AS request_count,
+    AVG(duration_ns / 1000000) AS avg_latency_ms,
+    SUM(CASE WHEN status_code >= 500 THEN 1 ELSE 0 END) AS error_count
+  FROM traces.distributed_traces
+  WHERE time > now() - INTERVAL '1 hour'
+  GROUP BY bucket, service_name
+),
+error_logs AS (
+  SELECT
+    time_bucket(INTERVAL '5 minutes', time) AS bucket,
+    service_name,
+    COUNT(*) AS log_error_count
+  FROM logs.logs
+  WHERE severity IN ('ERROR', 'FATAL')
+    AND time > now() - INTERVAL '1 hour'
+  GROUP BY bucket, service_name
+),
+cpu_stats AS (
+  SELECT
+    time_bucket(INTERVAL '5 minutes', time) AS bucket,
+    labels->>'service' AS service_name,
+    AVG(value) AS avg_cpu
+  FROM metrics.system_cpu_usage
+  WHERE time > now() - INTERVAL '1 hour'
+  GROUP BY bucket, service_name
+)
+SELECT
+  ts.bucket AS time,
+  ts.service_name,
+  ts.request_count,
+  ts.avg_latency_ms,
+  ts.error_count,
+  ROUND((ts.error_count::float / ts.request_count * 100), 2) AS error_rate_pct,
+  el.log_error_count,
+  ROUND(cs.avg_cpu, 2) AS avg_cpu_usage
+FROM trace_stats ts
+LEFT JOIN error_logs el ON ts.bucket = el.bucket AND ts.service_name = el.service_name
+LEFT JOIN cpu_stats cs ON ts.bucket = cs.bucket AND ts.service_name = cs.service_name
+ORDER BY ts.bucket DESC, ts.service_name;
+```
+
+This query provides:
+- Request volume and latency (from traces)
+- Error rate (from traces)
+- Error log count (from logs)
+- CPU usage (from metrics)
+
+All in one SQL query, all from one database!
+
+#### Example 3: Debug a Specific Incident
+
+Investigate a production incident with complete context:
+
+```sql
+-- Complete timeline for a slow request
+SELECT
+  t.time,
+  'trace' AS signal_type,
+  t.operation_name AS event,
+  t.duration_ns / 1000000 AS duration_ms,
+  t.status_code,
+  NULL AS severity,
+  NULL AS body
+FROM traces.distributed_traces t
+WHERE t.trace_id = '5b8efff798038103d269b633813fc60c'
+
+UNION ALL
+
+SELECT
+  l.time,
+  'log' AS signal_type,
+  l.service_name AS event,
+  NULL AS duration_ms,
+  NULL AS status_code,
+  l.severity,
+  l.body
+FROM logs.logs l
+WHERE l.trace_id = '5b8efff798038103d269b633813fc60c'
+
+ORDER BY time;
+```
+
+This gives you a **unified timeline** of all traces and logs for a single request!
+
+#### Why This Matters
+
+Traditional observability tools require:
+- Jaeger for traces
+- Prometheus for metrics
+- Loki/Elasticsearch for logs
+- **Manual correlation** between 3 separate systems
+
+With Arc + OpenTelemetry:
+- ✅ All signals in one database
+- ✅ Join across traces, metrics, and logs
+- ✅ Use SQL for powerful analysis
+- ✅ No manual correlation needed
+- ✅ Single query for complete context
+
+**This is the future of observability.**
 
 ## Performance
 

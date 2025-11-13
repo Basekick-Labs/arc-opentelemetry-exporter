@@ -1,0 +1,5 @@
+# Built collector binary
+otelcol-arc/otelcol-arc
+
+# Exclude the builder-config in parent directory (if accidentally created)
+../../builder-config.yaml

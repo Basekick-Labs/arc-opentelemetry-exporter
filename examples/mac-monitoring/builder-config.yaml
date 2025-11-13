@@ -5,21 +5,23 @@ dist:
   name: otelcol-arc
   description: OpenTelemetry Collector with Arc exporter
   output_path: ./otelcol-arc
-  otelcol_version: 0.91.0
+  otelcol_version: 0.92.0
 
 exporters:
   - gomod: github.com/basekick-labs/arc-opentelemetry-exporter v0.1.0
+    import: github.com/basekick-labs/arc-opentelemetry-exporter
+    name: arcexporter
 
 receivers:
   # OTLP receiver for receiving telemetry from applications
-  - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.91.0
+  - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.92.0
 
   # Host metrics receiver for system monitoring
-  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/hostmetricsreceiver v0.91.0
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/hostmetricsreceiver v0.92.0
 
 processors:
-  - gomod: go.opentelemetry.io/collector/processor/batchprocessor v0.91.0
-  - gomod: go.opentelemetry.io/collector/processor/memorylimiterprocessor v0.91.0
+  - gomod: go.opentelemetry.io/collector/processor/batchprocessor v0.92.0
+  - gomod: go.opentelemetry.io/collector/processor/memorylimiterprocessor v0.92.0
 
   # Resource processor to add labels
-  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/resourceprocessor v0.91.0
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/resourceprocessor v0.92.0

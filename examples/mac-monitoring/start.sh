@@ -27,7 +27,7 @@ BUILDER="${GOPATH}/bin/builder"
 # Check if builder is installed
 if [ ! -f "$BUILDER" ]; then
     echo "📦 Installing OpenTelemetry Collector Builder..."
-    go install go.opentelemetry.io/collector/cmd/builder@v0.91.0
+    go install go.opentelemetry.io/collector/cmd/builder@v0.92.0
     echo ""
 fi
 

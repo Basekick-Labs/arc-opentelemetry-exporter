@@ -157,7 +157,7 @@ func (e *logsExporter) logsToColumnar(ld plog.Logs) ([]byte, error) {
 }
 
 func (e *logsExporter) sendToArc(ctx context.Context, payload []byte) error {
-	url := fmt.Sprintf("%s/api/v1/write/msgpack?database=%s", e.config.Endpoint, e.config.Database)
+	url := fmt.Sprintf("%s/api/v1/write/msgpack?database=%s", e.config.Endpoint, e.config.LogsDatabase)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(payload))
 	if err != nil {

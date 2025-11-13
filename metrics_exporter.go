@@ -243,7 +243,7 @@ func (e *metricsExporter) processSummary(metric pmetric.Metric, batch *metricBat
 }
 
 func (e *metricsExporter) sendToArc(ctx context.Context, payload []byte) error {
-	url := fmt.Sprintf("%s/api/v1/write/msgpack?database=%s", e.config.Endpoint, e.config.Database)
+	url := fmt.Sprintf("%s/api/v1/write/msgpack?database=%s", e.config.Endpoint, e.config.MetricsDatabase)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(payload))
 	if err != nil {

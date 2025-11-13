@@ -148,7 +148,7 @@ func (e *tracesExporter) tracesToColumnar(td ptrace.Traces) ([]byte, error) {
 }
 
 func (e *tracesExporter) sendToArc(ctx context.Context, payload []byte) error {
-	url := fmt.Sprintf("%s/api/v1/write/msgpack?database=%s", e.config.Endpoint, e.config.Database)
+	url := fmt.Sprintf("%s/api/v1/write/msgpack?database=%s", e.config.Endpoint, e.config.TracesDatabase)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(payload))
 	if err != nil {

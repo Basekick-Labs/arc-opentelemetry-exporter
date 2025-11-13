@@ -19,8 +19,18 @@ type Config struct {
 	// AuthToken is the optional authentication token for Arc
 	AuthToken string `mapstructure:"auth_token"`
 
-	// Database is the Arc database name (default: "default")
+	// Database is the default Arc database name (default: "default")
+	// Used as fallback if signal-specific databases are not set
 	Database string `mapstructure:"database"`
+
+	// TracesDatabase is the database for traces (optional, defaults to Database)
+	TracesDatabase string `mapstructure:"traces_database"`
+
+	// MetricsDatabase is the database for metrics (optional, defaults to Database)
+	MetricsDatabase string `mapstructure:"metrics_database"`
+
+	// LogsDatabase is the database for logs (optional, defaults to Database)
+	LogsDatabase string `mapstructure:"logs_database"`
 
 	// TracesMeasurement is the measurement name for traces (default: "distributed_traces")
 	TracesMeasurement string `mapstructure:"traces_measurement"`
@@ -44,6 +54,18 @@ func (cfg *Config) Validate() error {
 	if cfg.Database == "" {
 		cfg.Database = "default"
 	}
+
+	// Signal-specific databases default to Database if not set
+	if cfg.TracesDatabase == "" {
+		cfg.TracesDatabase = cfg.Database
+	}
+	if cfg.MetricsDatabase == "" {
+		cfg.MetricsDatabase = cfg.Database
+	}
+	if cfg.LogsDatabase == "" {
+		cfg.LogsDatabase = cfg.Database
+	}
+
 	if cfg.TracesMeasurement == "" {
 		cfg.TracesMeasurement = "distributed_traces"
 	}

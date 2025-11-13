@@ -44,15 +44,22 @@ exporters:
     # Authentication token (optional)
     # auth_token: your-arc-token
 
-    # Database name (optional, default: "default")
-    database: production
+    # Database configuration
+    # Option 1: Single database for all signals (simple)
+    database: default
+
+    # Option 2: Separate databases per signal type (recommended)
+    # Provides clean separation and independent retention/scaling policies
+    traces_database: traces
+    metrics_database: metrics
+    logs_database: logs
 
     # Measurement/table names (optional)
     traces_measurement: distributed_traces
     logs_measurement: logs
 
     # Note: Metrics automatically use metric name as table name
-    # e.g., "system.cpu.usage" -> "system_cpu_usage" table
+    # e.g., "system.cpu.usage" -> "system_cpu_usage" table in metrics_database
 
     # HTTP client settings (optional)
     timeout: 30s
@@ -225,6 +232,65 @@ Examples:
 }
 ```
 
+## Database Organization Strategies
+
+### Strategy 1: Single Database (Default)
+
+All signals in one database - simplest configuration.
+
+```yaml
+database: default
+```
+
+**Structure:**
+```
+default/
+  ├── distributed_traces      (table)
+  ├── logs                     (table)
+  ├── system_cpu_usage         (table)
+  ├── system_memory_usage      (table)
+  └── http_requests_total      (table)
+```
+
+**Pros:** Simple, easy correlation across signals
+**Cons:** All data in one namespace
+
+### Strategy 2: Database Per Signal Type (Recommended)
+
+Separate databases for traces, metrics, and logs - like Telegraf pattern.
+
+```yaml
+traces_database: traces
+metrics_database: metrics
+logs_database: logs
+```
+
+**Structure:**
+```
+traces/
+  └── distributed_traces
+
+metrics/
+  ├── system_cpu_usage
+  ├── system_memory_usage
+  ├── http_requests_total
+  └── ... (each metric = table)
+
+logs/
+  └── logs
+```
+
+**Pros:**
+- Clean separation of concerns
+- Independent retention policies per signal type
+- Independent scaling (different storage backends)
+- Easier to manage permissions
+- Matches traditional observability architecture
+
+**Cons:** Slightly more complex configuration
+
+**Recommended for production deployments.**
+
 ## Querying Data in Arc
 
 ### Traces
@@ -247,7 +313,9 @@ ORDER BY time DESC;
 Each metric is in its own table. List all tables to see available metrics:
 
 ```sql
--- Show all metric tables
+-- Show all metric tables (if using separate database)
+-- First, connect to metrics database
+USE metrics;
 SHOW TABLES;
 ```
 
@@ -256,7 +324,7 @@ Query specific metrics:
 ```sql
 -- CPU usage
 SELECT time, value, labels
-FROM system_cpu_usage
+FROM metrics.system_cpu_usage
 WHERE time > now() - INTERVAL '1 hour'
 ORDER BY time DESC;
 
@@ -266,7 +334,12 @@ SELECT
   value,
   labels->>'method' AS method,
   labels->>'status' AS status
-FROM http_requests_total
+FROM metrics.http_requests_total
+WHERE time > now() - INTERVAL '1 hour';
+
+-- Or without database prefix if already connected
+SELECT time, value, labels
+FROM system_cpu_usage
 WHERE time > now() - INTERVAL '1 hour';
 ```
 

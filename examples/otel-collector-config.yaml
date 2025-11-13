@@ -31,15 +31,22 @@ exporters:
     # Authentication token (optional)
     # auth_token: your-arc-token-here
 
-    # Database name (optional, default: "default")
+    # Database configuration (optional)
+    # Option 1: Single database for all signals (default)
     database: default
+
+    # Option 2: Separate databases per signal type (recommended for production)
+    # Uncomment to use separate databases:
+    # traces_database: traces
+    # metrics_database: metrics
+    # logs_database: logs
 
     # Measurement/table names (optional)
     traces_measurement: distributed_traces
     logs_measurement: logs
 
     # Note: Metrics automatically use metric name as table name
-    # e.g., "system.cpu.usage" -> "system_cpu_usage" table
+    # e.g., "system.cpu.usage" -> "system_cpu_usage" table in metrics_database
 
     # HTTP client settings
     timeout: 30s

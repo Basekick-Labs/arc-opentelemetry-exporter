@@ -143,7 +143,7 @@ curl -X POST http://localhost:8000/api/v1/query \
 
 ## How It Works: Dynamic Column Extraction
 
-This exporter uses a **Telegraf-style** approach instead of the traditional Prometheus/OpenTelemetry JSONB labels model.
+This exporter uses **Arc's columnar msgpack format with dynamic columns** instead of the traditional Prometheus/OpenTelemetry JSONB labels model.
 
 ### The Problem with JSONB Labels
 
@@ -186,7 +186,7 @@ WHERE state = 'user'
 2. **Label Detection**: Scans all data points in the batch to find unique label keys
 3. **Column Creation**: Creates a column for each label key found
 4. **Null Handling**: Uses `nil` for missing label values
-5. **Columnar Format**: Sends data in Telegraf-style columnar msgpack format
+5. **Columnar Format**: Sends data in Arc's columnar msgpack format with dynamic columns
 
 **Code Example** (from `metrics_exporter.go`):
 ```go
@@ -235,7 +235,7 @@ Instead of:
 | 2025-11-13 19:17:18 | 0.192 | {"cpu":"cpu0","state":"user"} |
 | 2025-11-13 19:17:18 | 0.514 | {"cpu":"cpu0","state":"system"} |
 
-**This is the Telegraf way** - and it's much better for columnar databases like Arc!
+**This is Arc's dynamic column approach** - much better for columnar databases!
 ```
 
 ## Metrics Reference

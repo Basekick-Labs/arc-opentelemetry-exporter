@@ -99,24 +99,38 @@ type metricBatch struct {
 }
 
 func (e *metricsExporter) batchToColumnar(metricName string, batch *metricBatch) ([]byte, error) {
-	// Serialize labels to JSON bytes as Arc expects
-	labelsBytes := make([][]byte, len(batch.labels))
-	for i, labels := range batch.labels {
-		jsonBytes, err := json.Marshal(labels)
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal labels to JSON: %w", err)
+	// Dynamically extract all unique label keys from the batch
+	labelKeys := make(map[string]bool)
+	for _, labels := range batch.labels {
+		for key := range labels {
+			labelKeys[key] = true
 		}
-		labelsBytes[i] = jsonBytes
 	}
 
-	// Create columnar payload - each metric name gets its own measurement/table
+	// Create columns map with time and value
+	columns := map[string]interface{}{
+		"time":  batch.times,
+		"value": batch.values,
+	}
+
+	// For each unique label key, create a column with values
+	for labelKey := range labelKeys {
+		columnValues := make([]interface{}, len(batch.labels))
+		for i, labels := range batch.labels {
+			if val, ok := labels[labelKey]; ok {
+				columnValues[i] = val
+			} else {
+				// Use nil for missing values (Arc will handle nulls)
+				columnValues[i] = nil
+			}
+		}
+		columns[labelKey] = columnValues
+	}
+
+	// Create columnar payload - Telegraf style with explicit columns
 	columnarData := map[string]interface{}{
-		"m": metricName, // Use metric name as measurement/table name!
-		"columns": map[string]interface{}{
-			"time":   batch.times,
-			"value":  batch.values,
-			"labels": labelsBytes,
-		},
+		"m":       metricName,
+		"columns": columns,
 	}
 
 	// Serialize to msgpack

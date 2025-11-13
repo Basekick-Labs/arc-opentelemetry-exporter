@@ -5,7 +5,7 @@ module go.opentelemetry.io/collector/cmd/builder
 go 1.24.0
 
 require (
-	github.com/basekick-labs/arc-opentelemetry-exporter v0.1.0
+	github.com/basekick-labs/arc-opentelemetry-exporter v0.1.3
 	github.com/open-telemetry/opentelemetry-collector-contrib/processor/resourceprocessor v0.92.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/receiver/hostmetricsreceiver v0.92.0
 	github.com/stretchr/testify v1.10.0

@@ -5,7 +5,7 @@ OpenTelemetry Collector exporter for [Arc](https://github.com/basekick-labs/arc)
 ## Features
 
 - ✅ **Traces**: Export distributed traces with full span hierarchy
-- ✅ **Metrics**: Export all metric types (gauge, counter, histogram, summary)
+- ✅ **Metrics**: Export gauge, counter, explicit histogram, exponential histogram, and summary metrics
 - ✅ **Logs**: Export structured logs with attributes
 - 🚀 **High Performance**: Uses Arc's columnar msgpack format for maximum throughput
 - 📦 **Compression**: Automatic gzip compression for efficient network usage
@@ -216,6 +216,8 @@ All metric attributes (data point attributes and resource attributes) become ind
 ```
 
 **Dynamic schema**: Columns are created automatically based on attributes present in your metrics.
+
+**Exponential histograms** are expanded into rows without converting their exponential ranges into approximate explicit bounds. The `exponential_histogram_field` column identifies `count`, `sum`, optional `min`/`max`, `zero_count`, or `bucket` rows. Bucket rows retain `bucket_sign` (`positive` or `negative`), the signed `bucket_index`, and the data point's `scale`; `zero_threshold`, `aggregation_temporality`, and `start_time` are retained on every row. Bucket boundaries can therefore be reconstructed from the OTel scale and index, including negative buckets. When `include_metric_metadata` is enabled, the field discriminator is named `_exponential_histogram_field` to match the existing histogram metadata convention.
 
 **Metric Name Sanitization:**
 - Dots (`.`) → Underscores (`_`)

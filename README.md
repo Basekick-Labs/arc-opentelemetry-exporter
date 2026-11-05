@@ -217,6 +217,8 @@ All metric attributes (data point attributes and resource attributes) become ind
 
 **Dynamic schema**: Columns are created automatically based on attributes present in your metrics.
 
+**Unsupported metric types** now return an explicit error instead of being silently skipped.
+
 **Exponential histograms** are expanded into rows without converting their exponential ranges into approximate explicit bounds. The `exponential_histogram_field` column identifies `count`, `sum`, optional `min`/`max`, `zero_count`, or `bucket` rows. Bucket rows retain `bucket_sign` (`positive` or `negative`), the signed `bucket_index`, and the data point's `scale`; `zero_threshold`, `aggregation_temporality`, and `start_time` are retained on every row. Bucket boundaries can therefore be reconstructed from the OTel scale and index, including negative buckets. When `include_metric_metadata` is enabled, the field discriminator is named `_exponential_histogram_field` to match the existing histogram metadata convention.
 
 **Metric Name Sanitization:**

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/vmihailenco/msgpack/v5"
@@ -122,5 +123,24 @@ func TestProcessExponentialHistogram_OmitsAbsentOptionalStatistics(t *testing.T)
 	}
 	if got := batch.labels[1][fieldKey]; got != "zero_count" {
 		t.Errorf("second field = %v, want zero_count", got)
+	}
+}
+
+func TestPushMetrics_UnsupportedMetricTypeReturnsError(t *testing.T) {
+	md := pmetric.NewMetrics()
+	rm := md.ResourceMetrics().AppendEmpty()
+	sm := rm.ScopeMetrics().AppendEmpty()
+	metric := sm.Metrics().AppendEmpty()
+	metric.SetName("future.metric")
+	// A newly introduced/empty metric type must fail explicitly rather than
+	// produce an empty write or silently disappear.
+
+	e := &metricsExporter{config: &Config{}}
+	err := e.pushMetrics(context.Background(), md)
+	if err == nil {
+		t.Fatal("expected unsupported metric type error")
+	}
+	if !strings.Contains(err.Error(), "unsupported OpenTelemetry metric type") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

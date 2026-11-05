@@ -75,6 +75,8 @@ func (e *metricsExporter) pushMetrics(ctx context.Context, md pmetric.Metrics) e
 					e.processExponentialHistogram(metric, batch, resourceAttrs)
 				case pmetric.MetricTypeSummary:
 					e.processSummary(metric, batch, resourceAttrs)
+				default:
+					return fmt.Errorf("unsupported OpenTelemetry metric type %s for metric %q", metric.Type(), metric.Name())
 				}
 			}
 		}

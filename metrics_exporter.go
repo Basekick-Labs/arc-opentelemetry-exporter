@@ -71,8 +71,12 @@ func (e *metricsExporter) pushMetrics(ctx context.Context, md pmetric.Metrics) e
 					e.processSum(metric, batch, resourceAttrs)
 				case pmetric.MetricTypeHistogram:
 					e.processHistogram(metric, batch, resourceAttrs)
+				case pmetric.MetricTypeExponentialHistogram:
+					e.processExponentialHistogram(metric, batch, resourceAttrs)
 				case pmetric.MetricTypeSummary:
 					e.processSummary(metric, batch, resourceAttrs)
+				default:
+					return fmt.Errorf("unsupported OpenTelemetry metric type %s for metric %q", metric.Type(), metric.Name())
 				}
 			}
 		}
@@ -259,6 +263,70 @@ func (e *metricsExporter) processHistogram(metric pmetric.Metric, batch *metricB
 			batch.times = append(batch.times, dp.Timestamp().AsTime().UnixMilli())
 			batch.values = append(batch.values, float64(dp.BucketCounts().At(j)))
 			batch.labels = append(batch.labels, bucketLabels)
+		}
+	}
+}
+
+// processExponentialHistogram expands the OTel exponential histogram into
+// typed rows. The scale and signed bucket index are retained rather than
+// approximating the exponential boundaries as explicit buckets; consumers can
+// reconstruct each boundary exactly from those values. Zero-count, optional
+// sum/min/max, aggregation temporality and start time are retained as well.
+func (e *metricsExporter) processExponentialHistogram(metric pmetric.Metric, batch *metricBatch, resourceAttrs map[string]interface{}) {
+	histogram := metric.ExponentialHistogram()
+	temporality := histogram.AggregationTemporality().String()
+
+	for i := 0; i < histogram.DataPoints().Len(); i++ {
+		dp := histogram.DataPoints().At(i)
+		timestamp := dp.Timestamp().AsTime().UnixMilli()
+		startTime := dp.StartTimestamp().AsTime().UnixMilli()
+		attrs := mergeAttributes(resourceAttrs, attributesToMap(dp.Attributes()))
+
+		appendValue := func(field string, value float64, extra map[string]interface{}) {
+			labels := copyMap(attrs)
+			if e.config.IncludeMetricMetadata {
+				labels["_exponential_histogram_field"] = field
+			} else {
+				labels["exponential_histogram_field"] = field
+			}
+			labels["scale"] = dp.Scale()
+			labels["zero_threshold"] = dp.ZeroThreshold()
+			labels["aggregation_temporality"] = temporality
+			labels["start_time"] = startTime
+			for key, extraValue := range extra {
+				labels[key] = extraValue
+			}
+			batch.times = append(batch.times, timestamp)
+			batch.values = append(batch.values, value)
+			batch.labels = append(batch.labels, labels)
+		}
+
+		appendValue("count", float64(dp.Count()), nil)
+		if dp.HasSum() {
+			appendValue("sum", dp.Sum(), nil)
+		}
+		if dp.HasMin() {
+			appendValue("min", dp.Min(), nil)
+		}
+		if dp.HasMax() {
+			appendValue("max", dp.Max(), nil)
+		}
+		appendValue("zero_count", float64(dp.ZeroCount()), nil)
+
+		for _, side := range []struct {
+			name    string
+			buckets pmetric.ExponentialHistogramDataPointBuckets
+		}{
+			{name: "positive", buckets: dp.Positive()},
+			{name: "negative", buckets: dp.Negative()},
+		} {
+			counts := side.buckets.BucketCounts()
+			for j := 0; j < counts.Len(); j++ {
+				appendValue("bucket", float64(counts.At(j)), map[string]interface{}{
+					"bucket_sign":  side.name,
+					"bucket_index": side.buckets.Offset() + int32(j),
+				})
+			}
 		}
 	}
 }

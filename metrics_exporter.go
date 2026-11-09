@@ -117,6 +117,10 @@ func (e *metricsExporter) batchToColumnar(metricName string, batch *metricBatch)
 
 	// For each unique label key, create a column with values
 	for labelKey := range labelKeys {
+		// Preserve the canonical signal columns; attributes must not replace them.
+		if _, reserved := columns[labelKey]; reserved {
+			continue
+		}
 		columnValues := make([]interface{}, len(batch.labels))
 		for i, labels := range batch.labels {
 			if val, ok := labels[labelKey]; ok {

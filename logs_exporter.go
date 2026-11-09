@@ -5,7 +5,6 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 
 	"github.com/vmihailenco/msgpack/v5"
@@ -203,8 +202,8 @@ func (e *logsExporter) sendToArc(ctx context.Context, payload []byte) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("arc returned status %d: %s", resp.StatusCode, string(body))
+		body := readArcErrorBody(resp.Body)
+		return fmt.Errorf("arc returned status %d: %s", resp.StatusCode, body)
 	}
 
 	e.logger.Debug("Successfully sent logs to Arc",

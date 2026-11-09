@@ -144,6 +144,10 @@ func (e *logsExporter) logsToColumnar(ld plog.Logs) ([]byte, error) {
 
 	// Add dynamic columns for each attribute
 	for attrKey := range attributeKeys {
+		// Preserve the canonical signal columns; attributes must not replace them.
+		if _, reserved := columns[attrKey]; reserved {
+			continue
+		}
 		columnValues := make([]interface{}, len(allAttributes))
 		for i, attrs := range allAttributes {
 			if val, ok := attrs[attrKey]; ok {
